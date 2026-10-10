@@ -193,7 +193,7 @@ function viewWorkout(w,tab){
   app.onclick=e=>{ const b=e.target.closest('button,[data-chk]'); if(!b)return; const d=b.dataset;
     if(d.tab)return go(d.tab);
     if(d.ip!=null){ unlockAudio(); wake(); LS.set('training',1); const key=itKey(w,d.ip); const it=cur.block.items.find(i=>i.exercise===l.sets[d.ip].exercise);
-      let st=LS.get(key)||{dur:parseDur(it.duration||it.reps),start:0,pausedAt:0,pausedTotal:0};
+      let st=LS.get(key)||{dur:itemDur(it),start:0,pausedAt:0,pausedTotal:0};
       if(!st.start)st.start=Date.now(); else if(st.pausedAt){st.pausedTotal+=Date.now()-st.pausedAt;st.pausedAt=0;} else st.pausedAt=Date.now();
       LS.set(key,st); return viewWorkout(w,cur.key); }
     if(d.ir!=null){ const st=LS.get(itKey(w,d.ir)); if(st)LS.set(itKey(w,d.ir),{dur:st.dur,start:0,pausedAt:0,pausedTotal:0}); return viewWorkout(w,cur.key); }
@@ -208,7 +208,7 @@ function viewWorkout(w,tab){
     if(d.chk!=null) return check(+d.chk);
   };
   const pickDur=k=>{ const key=itKey(w,k), it=cur.block.items.find(i=>i.exercise===l.sets[k].exercise), st=LS.get(key);
-    const v=prompt('Tijd (bv. 5, 5:30 of 45s)', fmt(st?st.dur:parseDur(it.duration||it.reps))); if(!v)return;
+    const v=prompt('Tijd (bv. 5, 5:30 of 45s)', fmt(st?st.dur:itemDur(it))); if(!v)return;
     let sec; const t=v.trim().toLowerCase(); if(/s$/.test(t))sec=parseFloat(t); else if(t.includes(':')){const p=t.split(':').map(Number);sec=p[0]*60+p[1];} else sec=parseFloat(t.replace(',','.'))*60;
     if(sec>0){ LS.set(key,{dur:Math.round(sec),start:0,pausedAt:0,pausedTotal:0}); viewWorkout(w,cur.key); } };
   app.querySelectorAll('[data-iset]').forEach(b=>{ let t; b.addEventListener('touchstart',()=>{t=setTimeout(()=>{t=null;pickDur(+b.dataset.iset)},550)},{passive:true}); b.addEventListener('touchend',e=>{ if(t)clearTimeout(t); else e.preventDefault(); }); b.addEventListener('contextmenu',e=>e.preventDefault()); });
@@ -221,11 +221,10 @@ function amrapCard(w,l){ const st=LS.get('run:'+w.id); const left=st?Math.max(0,
   <div class="stepper" style="margin-top:12px"><button data-am="-1">−</button><div class="val">${l.amrap_rounds||0} rondes<small>aantal afgerond</small></div><button data-am="1" class="plus">+1</button></div></div>`; }
 
 /* ---------- Duur-timers per oefening ---------- */
-function parseDur(t){ const m=String(t||'').match(/(\d+(?:[.,]\d+)?)(?:\s*[–-]\s*(\d+(?:[.,]\d+)?))?\s*(min|minuten|sec|seconden|s)\b/i); if(!m)return null;
-  const n=+(m[2]||m[1]).replace(',','.'); return Math.round(/^m/i.test(m[3])?n*60:n); }
+// parseDur/itemDur komen uit duration.js (strikte regel, zie tests/duration.test.js)
 const itKey=(w,k)=>'it:'+w.id+':'+k;
 function itState(st){ if(!st)return null; const now=st.pausedAt||Date.now(); const el=Math.min(st.dur,st.start?(now-st.start-st.pausedTotal)/1000:0); return {el,left:st.dur-el,pct:100*el/st.dur,run:!!st.start&&!st.pausedAt&&el<st.dur}; }
-function itRow(w,k,it,s){ const def=parseDur(it.duration||it.reps); if(!def||s.done)return '';
+function itRow(w,k,it,s){ const def=itemDur(it); if(!def||s.done)return '';
   const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{el:0,left:dur,pct:0,run:false};
   return `<div class="itimer" data-it="${k}"><button class="ib ${x.run?'':'go'}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button>
    <button class="val" data-iset="${k}"><span class="itl">${fmt(Math.ceil(x.left))}</span><small>van ${fmt(dur)} · tik om te wijzigen</small><span class="ring"><i style="width:${x.pct}%"></i></span></button>
