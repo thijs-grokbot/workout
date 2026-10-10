@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v8.1', APP_BUILD='50b1432+';
+const APP_VERSION='v9', APP_BUILD='938a5d1+';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {}, (()=>{try{return JSON.parse(localStorage.getItem('cfg')||'{}')}catch(e){return {}}})());
 const clean=v=>String(v||'').replace(/[\u200B-\u200D\uFEFF\s]+/g,'').replace(/\\_/g,'_');
@@ -81,6 +81,27 @@ function getLog(w){
 const isMain = b => /hoofd/i.test(b.name);
 function saveLog(l,sync=true){ l.updated_at=new Date().toISOString(); LS.set(logKey(l.workout_id),l);
   if(sync){ const q=new Set(LS.get('queue',[])); q.add(l.workout_id); LS.set('queue',[...q]); flush(); } }
+/* server-logs ophalen en mergen: per workout_id wint de nieuwste updated_at; lokale niet-gesyncte logs nooit overschreven door ouder */
+let serverLogsState=LS.get('serverLogsState','');
+function mergeServerLogs(arr){
+  const q=new Set(LS.get('queue',[])); let n=0;
+  (arr||[]).forEach(sl=>{ if(!sl||!sl.workout_id||/TEST/i.test(sl.workout_id)||sl.date==='2000-01-01')return;
+    const loc=LS.get(logKey(sl.workout_id)); const st=String(sl.updated_at||sl.synced_at||''), lt=String((loc&&loc.updated_at)||'');
+    if(loc&&q.has(sl.workout_id)&&lt>=st) return;      // lokaal nieuwer en nog niet gesynct
+    if(loc&&lt>=st) return;                              // lokaal even nieuw of nieuwer
+    const m={...sl}; delete m.screenshot; if(sl.screenshot&&!/^data:/.test(sl.screenshot))m.screenshot_file=sl.screenshot;
+    m.feedback=m.feedback||{}; m.sets=m.sets||[]; m.run=m.run||{};
+    LS.set(logKey(sl.workout_id),m); if(q.has(sl.workout_id)){ q.delete(sl.workout_id); } n++; });
+  LS.set('queue',[...q]); return n;
+}
+async function loadServerLogs(){
+  if(!CFG.API_URL)return;
+  const f=new Date(); f.setDate(f.getDate()-180); const t=new Date(); t.setDate(t.getDate()+7);
+  try{ const j=await api('GET',{action:'logs',from:ymd(f),to:ymd(t)});
+    if(j&&j.ok&&Array.isArray(j.logs)){ const n=mergeServerLogs(j.logs); serverLogsState='ok '+j.logs.length+' ('+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})+')'; LS.set('serverLogsState',serverLogsState); if(n)route(); }
+    else { serverLogsState=(j&&/unknown action/.test(j.error||''))?'nog niet beschikbaar (Code.gs-update nodig)':'fout: '+((j&&j.error)||'?'); LS.set('serverLogsState',serverLogsState); }
+  }catch(e){ serverLogsState='niet bereikbaar ('+e.message+')'; LS.set('serverLogsState',serverLogsState); }
+}
 const allLogs = () => Object.keys(localStorage).filter(k=>k.startsWith('log:')).map(k=>LS.get(k)).filter(Boolean);
 
 /* ---------- sync-wachtrij: hele log-object, idempotent (overschrijft op server) ---------- */
@@ -378,7 +399,8 @@ function viewSettings(){
    <label class="field"><span>API-URL (Apps Script /exec)</span><input id="api" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(c.API_URL||'')}"></label>
    <label class="field"><span>Token</span><input id="tok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(c.TOKEN||'')}"></label>
    <div class="grid2"><button class="btn" id="test">Test verbinding</button><button class="btn danger" id="clr">Wissen</button></div>
-   <button class="btn" id="diag" style="margin-top:8px">Diagnose</button>
+   <div class="grid2" style="margin-top:8px"><button class="btn" id="diag">Diagnose</button><button class="btn" id="refresh">Vernieuwen</button></div>
+   <div class="meta" style="margin-top:8px">Logs van server: ${esc(serverLogsState||'nog niet opgehaald')}</div>
    <div class="card meta" id="res">${CFG.API_URL?'Sync staat aan':'Sync staat uit (lokaal)'} · ${q} in wachtrij</div>
    <pre class="card diag" id="dout" hidden></pre><button class="btn" id="copy" hidden>Kopieer</button>
    <div class="card"><div class="eyebrow">Versie</div><div class="lg"><b>${VLABEL}</b></div><div class="meta" id="swv">service worker: …</div></div>`;
@@ -388,6 +410,7 @@ function viewSettings(){
   app.onclick=async e=>{ const id=e.target.id, r=app.querySelector('#res');
     if(id==='clr'&&confirm('Sync-gegevens wissen? (logs blijven bewaard)')){ localStorage.removeItem('cfg'); location.reload(); }
     if(id==='diag') return diagnose(val());
+    if(id==='refresh'){ e.target.textContent='Bezig…'; await loadPlan(); await flush(); await loadServerLogs(); return viewSettings(); }
     if(id==='copy'){ const t=app.querySelector('#dout').textContent; try{ await navigator.clipboard.writeText(t); e.target.textContent='✓ Gekopieerd'; }catch(err){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); e.target.textContent='✓ Gekopieerd'; } return; }
     if(id==='test'){ const v=val(); if(!/^https:\/\//.test(v.API_URL)){r.textContent='Vul een https-URL in.';return;} if(!/^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(v.API_URL)){r.textContent='✗ URL moet eindigen op /exec';return;}
       r.textContent='Verbinden… (kan even duren, tot ~1 min)'; e.target.disabled=true; const t0=Date.now();
@@ -425,6 +448,22 @@ async function diagnose(v){
   log('Wachtrij: '+LS.get('queue',[]).length);
 }
 
+/* ---------- swipe tussen tabs ---------- */
+const MAIN_TABS=['vandaag','week','progressie','instellingen'];
+let sw0=null;
+app.addEventListener('touchstart',e=>{ if(e.touches.length!==1||ov.style.display==='block'){sw0=null;return;}
+  if(e.target.closest('input,textarea,select,.stepper,.itimer,.tabs,.rpe,.seg,.bars,[data-noswipe]')){sw0=null;return;}
+  const t=e.touches[0]; sw0={x:t.clientX,y:t.clientY,t:Date.now()}; },{passive:true});
+app.addEventListener('touchend',e=>{ if(!sw0)return; const t=e.changedTouches[0], dx=t.clientX-sw0.x, dy=t.clientY-sw0.y, dt=Date.now()-sw0.t; sw0=null;
+  if(Math.abs(dx)<70||Math.abs(dx)<2*Math.abs(dy)||dt>800)return; swipe(dx<0?1:-1); },{passive:true});
+function swipe(dir){
+  const h=location.hash.slice(1)||'vandaag', [v,arg,tab]=h.split('/');
+  if(v==='w'){ const w=byId(arg); if(!w||isRun(w)&&tab!=='klaar')return; const T=tabsOf(w).map(t=>t.key).concat('klaar');
+    let i=T.indexOf(tab); if(i<0){ const btn=app.querySelector('.tab.on'); i=btn?T.indexOf(btn.dataset.tab):0; }
+    const j=i+dir; if(j<0||j>=T.length)return; location.replace('#w/'+w.id+'/'+T[j]); return; }
+  const i=MAIN_TABS.indexOf(v); if(i<0)return; const j=i+dir; if(j<0||j>=MAIN_TABS.length)return; location.hash='#'+MAIN_TABS[j];
+}
+
 /* ---------- versie / updates ---------- */
 function toast(t){ const d=document.createElement('div'); d.className='toast'; d.textContent=t; document.body.appendChild(d); setTimeout(()=>d.remove(),3500); }
 if(sessionStorage.getItem('updated')){ sessionStorage.removeItem('updated'); setTimeout(()=>toast('Bijgewerkt naar '+APP_VERSION),300); }
@@ -435,4 +474,5 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{ reg.update().catch(()=>{}); document.addEventListener('visibilitychange',()=>{ if(!document.hidden)reg.update().catch(()=>{}); }); }).catch(()=>{});
   navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!hadCtrl||reloaded)return; reloaded=true; sessionStorage.setItem('updated','1'); location.reload(); });
 }
-syncLabel(); route(); loadPlan(); flush();
+syncLabel(); route(); loadPlan(); flush().then(loadServerLogs);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ loadPlan(); flush().then(loadServerLogs); } });
