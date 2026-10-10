@@ -1,10 +1,28 @@
 'use strict';
+const APP_VERSION='v8', APP_BUILD='24d2ba7+';
+const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {}, (()=>{try{return JSON.parse(localStorage.getItem('cfg')||'{}')}catch(e){return {}}})());
 const clean=v=>String(v||'').replace(/[\u200B-\u200D\uFEFF\s]+/g,'').replace(/\\_/g,'_');
 CFG.API_URL=clean(CFG.API_URL).replace(/[.,;]+$/,''); CFG.TOKEN=clean(CFG.TOKEN);
 // Cross-origin naar Apps Script: simpele requests (geen custom headers -> geen preflight), redirect volgen, geen cookies,
 // 60 s timeout (koude start kan ~40 s duren) en 1x opnieuw proberen.
+function jsonp(url,timeout=60000){ return new Promise((res,rej)=>{ const cb='__wcb'+Date.now()+Math.floor(Math.random()*1e4); const sc=document.createElement('script');
+  const done=(f,v)=>{ clearTimeout(t); delete window[cb]; sc.remove(); f(v); }; const t=setTimeout(()=>done(rej,new Error('JSONP time-out')),timeout);
+  window[cb]=d=>done(res,d); sc.onerror=()=>done(rej,new Error('JSONP laadfout (Code.gs zonder callback-ondersteuning?)')); sc.src=url+(url.includes('?')?'&':'?')+'callback='+cb; document.head.appendChild(sc); }); }
+function jsonpUrl(params,cfg){ return cfg.API_URL+'?'+new URLSearchParams({...params,token:cfg.TOKEN,_:Date.now()}); }
+let lastTransport='';
 async function api(method,params,body,cfg=CFG,tries=2){
+  try{ const j=await api0(method,params,body,cfg,tries); lastTransport='fetch'; return j; }
+  catch(e){
+    if(/geen JSON/.test(e.message)) throw e;
+    // iOS-fallback: JSONP via <script>. Voor POST alleen als het log klein genoeg is (zonder screenshot).
+    if(method==='GET'){ const j=await jsonp(jsonpUrl(params,cfg)); lastTransport='jsonp'; return j; }
+    const lg={...body.log}; delete lg.screenshot; const data=JSON.stringify(lg);
+    if(data.length<6000){ const j=await jsonp(jsonpUrl({action:'log',data},cfg)); lastTransport='jsonp'; return j; }
+    throw e;
+  }
+}
+async function api0(method,params,body,cfg=CFG,tries=2){
   let last;
   for(let i=0;i<tries;i++){
     const ac=new AbortController(), t=setTimeout(()=>ac.abort(),60000);
@@ -161,7 +179,7 @@ function viewToday(){
   if(ws.length) h+='<h2>Deze week</h2><div class="card"><ul class="list">'+ws.map(x=>`<li><a href="#w/${esc(x.id)}">${DAYS[wk.indexOf(x.date)][0].toUpperCase()+DAYS[wk.indexOf(x.date)][1]} · ${esc(x.title)}</a>${stBadge(x)}</li>`).join('')+'</ul></div>';
   const nxt=PLAN.filter(x=>x.date>wk[6]).slice(0,3);
   if(nxt.length) h+='<h2>Daarna</h2><div class="card"><ul class="list">'+nxt.map(x=>`<li><a href="#w/${esc(x.id)}">${esc(x.date.slice(8))}/${+x.date.slice(5,7)} · ${esc(x.title)}</a>${stBadge(x)}</li>`).join('')+'</ul></div>';
-  app.innerHTML=h;
+  app.innerHTML=h+`<div class="meta" style="text-align:center;margin-top:16px;font-size:12px">${VLABEL}</div>`;
 }
 const offlineTag=()=>navigator.onLine?'':' · Offline · wordt gesynct';
 addEventListener('offline',()=>route()); addEventListener('online',()=>route());
@@ -359,11 +377,17 @@ function viewSettings(){
    <label class="field"><span>API-URL (Apps Script /exec)</span><input id="api" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(c.API_URL||'')}"></label>
    <label class="field"><span>Token</span><input id="tok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(c.TOKEN||'')}"></label>
    <div class="grid2"><button class="btn" id="test">Test verbinding</button><button class="btn danger" id="clr">Wissen</button></div>
-   <div class="card meta" id="res">${CFG.API_URL?'Sync staat aan':'Sync staat uit (lokaal)'} · ${q} in wachtrij</div>`;
+   <button class="btn" id="diag" style="margin-top:8px">Diagnose</button>
+   <div class="card meta" id="res">${CFG.API_URL?'Sync staat aan':'Sync staat uit (lokaal)'} · ${q} in wachtrij</div>
+   <pre class="card diag" id="dout" hidden></pre><button class="btn" id="copy" hidden>Kopieer</button>
+   <div class="card"><div class="eyebrow">Versie</div><div class="lg"><b>${VLABEL}</b></div><div class="meta" id="swv">service worker: …</div></div>`;
+  swVersion().then(v=>{const el=app.querySelector('#swv'); if(el)el.textContent='service worker: '+v;});
   setBar(`<button class="btn primary" id="save">Opslaan</button>`);
   const val=()=>({API_URL:clean(app.querySelector('#api').value).replace(/[.,;]+$/,''),TOKEN:clean(app.querySelector('#tok').value)});
   app.onclick=async e=>{ const id=e.target.id, r=app.querySelector('#res');
     if(id==='clr'&&confirm('Sync-gegevens wissen? (logs blijven bewaard)')){ localStorage.removeItem('cfg'); location.reload(); }
+    if(id==='diag') return diagnose(val());
+    if(id==='copy'){ const t=app.querySelector('#dout').textContent; try{ await navigator.clipboard.writeText(t); e.target.textContent='✓ Gekopieerd'; }catch(err){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); e.target.textContent='✓ Gekopieerd'; } return; }
     if(id==='test'){ const v=val(); if(!/^https:\/\//.test(v.API_URL)){r.textContent='Vul een https-URL in.';return;} if(!/^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(v.API_URL)){r.textContent='✗ URL moet eindigen op /exec';return;}
       r.textContent='Verbinden… (kan even duren, tot ~1 min)'; e.target.disabled=true; const t0=Date.now();
       try{ const j=await api('GET',{action:'plan',from:today(),to:today()},null,v);
@@ -373,6 +397,41 @@ function viewSettings(){
   bar.querySelector('#save').onclick=()=>{ const v=val(); if(v.API_URL&&!/^https:\/\//.test(v.API_URL)){alert('URL moet met https:// beginnen');return;} LS.set('cfg',v); location.replace('#vandaag'); location.reload(); };
 }
 
+function swVersion(){ return new Promise(res=>{ const c=navigator.serviceWorker&&navigator.serviceWorker.controller; if(!c)return res('geen (niet actief)');
+  const t=setTimeout(()=>res('onbekend (oud?)'),1500); navigator.serviceWorker.addEventListener('message',function h(e){ if(e.data&&e.data.version){clearTimeout(t);navigator.serviceWorker.removeEventListener('message',h);res(e.data.version);} }); c.postMessage('version'); }); }
+async function diagnose(v){
+  const out=app.querySelector('#dout'), cp=app.querySelector('#copy'); out.hidden=false; cp.hidden=false; cp.textContent='Kopieer';
+  const L=[]; const log=x=>{L.push(x); out.textContent=L.join('\n');};
+  const mask=t=>t?t.slice(0,3)+'…'+t.slice(-2)+' ('+t.length+' tekens)':'(leeg)';
+  log('App '+VLABEL+' · SW '+(await swVersion())+' · '+new Date().toLocaleString('nl-NL'));
+  log('Standalone: '+(navigator.standalone||matchMedia('(display-mode: standalone)').matches)+' · online: '+navigator.onLine);
+  log('UA: '+navigator.userAgent);
+  log('1. URL: '+(v.API_URL||'(leeg)')); log('   geldig /exec: '+/^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(v.API_URL)); log('   token: '+mask(v.TOKEN));
+  if(!v.API_URL)return;
+  const url=v.API_URL+'?'+new URLSearchParams({action:'plan',from:today(),to:today(),token:v.TOKEN,_:Date.now()});
+  log('2. fetch GET (redirect follow, credentials omit, geen headers)… kan ~1 min duren'); let t0=Date.now();
+  try{ const ac=new AbortController(), tt=setTimeout(()=>ac.abort(),60000);
+    const r=await fetch(url,{redirect:'follow',credentials:'omit',signal:ac.signal}); const body=await r.text(); clearTimeout(tt);
+    log('   status '+r.status+' · type '+r.type+' · redirected '+r.redirected+' · '+(Date.now()-t0)+' ms');
+    log('   final URL: '+(r.url?r.url.replace(/token=[^&]*/,'token=***').slice(0,160):'(onbekend)'));
+    log('   content-type: '+r.headers.get('content-type'));
+    log('   body: '+body.slice(0,120).split(v.TOKEN).join('***'));
+    if(/<html|<!doctype/i.test(body)) log('   ⚠ HTML in plaats van JSON (login-/foutpagina)');
+  }catch(e){ log('   FOUT '+e.name+': '+e.message+' · '+(Date.now()-t0)+' ms'); }
+  log('3. JSONP-fallback…'); t0=Date.now();
+  try{ const j=await jsonp(jsonpUrl({action:'plan',from:today(),to:today()},v)); log('   ok '+JSON.stringify(j).slice(0,120)+' · '+(Date.now()-t0)+' ms'); }
+  catch(e){ log('   FOUT '+e.message+' · '+(Date.now()-t0)+' ms'); }
+  log('Wachtrij: '+LS.get('queue',[]).length);
+}
+
+/* ---------- versie / updates ---------- */
+function toast(t){ const d=document.createElement('div'); d.className='toast'; d.textContent=t; document.body.appendChild(d); setTimeout(()=>d.remove(),3500); }
+if(sessionStorage.getItem('updated')){ sessionStorage.removeItem('updated'); setTimeout(()=>toast('Bijgewerkt naar '+APP_VERSION),300); }
+
 /* ---------- start ---------- */
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator){
+  const hadCtrl=!!navigator.serviceWorker.controller; let reloaded=false;
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{ reg.update().catch(()=>{}); document.addEventListener('visibilitychange',()=>{ if(!document.hidden)reg.update().catch(()=>{}); }); }).catch(()=>{});
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!hadCtrl||reloaded)return; reloaded=true; sessionStorage.setItem('updated','1'); location.reload(); });
+}
 syncLabel(); route(); loadPlan(); flush();

@@ -79,3 +79,5 @@ nav a.gear{flex:0 0 48px;font-size:22px}
 .itimer .val small{display:block;font-size:var(--fs-xs);color:var(--muted);font-weight:600}.itimer .ring{display:block;margin:6px 0 0}
 .ex.fin{background:var(--accent);color:var(--on-accent)}.ex.fin .meta{color:var(--on-accent)}
 .ex.fin .itimer .val,.ex.fin .itimer .val small{color:var(--on-accent)}.ex.fin .ring i{background:var(--on-accent)}
+.diag{white-space:pre-wrap;word-break:break-all;font:12px/1.4 ui-monospace,Menlo,monospace;color:var(--text)}
+.toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 60px);transform:translateX(-50%);background:var(--success);color:var(--on-accent);font-weight:700;padding:12px 18px;border-radius:999px;z-index:30}
