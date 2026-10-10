@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v8', APP_BUILD='24d2ba7+';
+const APP_VERSION='v8.1', APP_BUILD='50b1432+';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {}, (()=>{try{return JSON.parse(localStorage.getItem('cfg')||'{}')}catch(e){return {}}})());
 const clean=v=>String(v||'').replace(/[\u200B-\u200D\uFEFF\s]+/g,'').replace(/\\_/g,'_');
@@ -8,7 +8,8 @@ CFG.API_URL=clean(CFG.API_URL).replace(/[.,;]+$/,''); CFG.TOKEN=clean(CFG.TOKEN)
 // 60 s timeout (koude start kan ~40 s duren) en 1x opnieuw proberen.
 function jsonp(url,timeout=60000){ return new Promise((res,rej)=>{ const cb='__wcb'+Date.now()+Math.floor(Math.random()*1e4); const sc=document.createElement('script');
   const done=(f,v)=>{ clearTimeout(t); delete window[cb]; sc.remove(); f(v); }; const t=setTimeout(()=>done(rej,new Error('JSONP time-out')),timeout);
-  window[cb]=d=>done(res,d); sc.onerror=()=>done(rej,new Error('JSONP laadfout (Code.gs zonder callback-ondersteuning?)')); sc.src=url+(url.includes('?')?'&':'?')+'callback='+cb; document.head.appendChild(sc); }); }
+  window[cb]=d=>done(res,d); sc.onerror=()=>done(rej,new Error('JSONP laadfout'));
+  sc.onload=()=>setTimeout(()=>{ if(window[cb]) done(rej,new Error('geen JSONP-antwoord: Code.gs nog niet bijgewerkt (callback)')); },100); sc.src=url+(url.includes('?')?'&':'?')+'callback='+cb; document.head.appendChild(sc); }); }
 function jsonpUrl(params,cfg){ return cfg.API_URL+'?'+new URLSearchParams({...params,token:cfg.TOKEN,_:Date.now()}); }
 let lastTransport='';
 async function api(method,params,body,cfg=CFG,tries=2){
