@@ -1,9 +1,27 @@
 'use strict';
-const APP_VERSION='v9', APP_BUILD='938a5d1+';
+const APP_VERSION='v11', APP_BUILD='767d1f1+';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
-const CFG = Object.assign({}, window.CONFIG || {}, (()=>{try{return JSON.parse(localStorage.getItem('cfg')||'{}')}catch(e){return {}}})());
+const CFG = Object.assign({}, window.CONFIG || {});
+function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
+  for(const k of ['API_URL','TOKEN']) if(c[k]) CFG[k]=c[k]; }   // localStorage gaat voor config.js; lege waarden nooit
+applyStoredCfg();
+const syncOn=()=>!!(CFG.API_URL&&CFG.TOKEN);
+
 const clean=v=>String(v||'').replace(/[\u200B-\u200D\uFEFF\s]+/g,'').replace(/\\_/g,'_');
 CFG.API_URL=clean(CFG.API_URL).replace(/[.,;]+$/,''); CFG.TOKEN=clean(CFG.TOKEN);
+/* ---------- Magic link: #k=<token>&u=<base64url exec-URL, optioneel> ---------- */
+function b64urlDecode(x){ try{ x=String(x).replace(/-/g,'+').replace(/_/g,'/'); while(x.length%4)x+='='; return decodeURIComponent(escape(atob(x))); }catch(e){ return ''; } }
+function parseLink(text){ // accepteert de hele link, alleen de hash, of "k=…&u=…"
+  const t=String(text||'').trim(); const i=t.indexOf('#'); const h=(i>=0?t.slice(i+1):t).replace(/^[?#]/,'');
+  const p=new URLSearchParams(h); const k=clean(p.get('k')||''); if(!k||k.length<16)return null;
+  let u=p.get('u')?clean(b64urlDecode(p.get('u'))):''; if(u&&!/^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(u))u='';
+  return {TOKEN:k,API_URL:u||clean((window.CONFIG||{}).API_URL||'')||CFG.API_URL||''};
+}
+let justLinked=false;
+function handleMagicLink(){ if(!/(^|[#&])k=/.test(location.hash))return false; const v=parseLink(location.hash);
+  history.replaceState(null,'',location.pathname+location.search+'#vandaag'); // token direct uit de adresbalk/geschiedenis
+  if(v&&v.API_URL){ localStorage.setItem('cfg',JSON.stringify(v)); applyStoredCfg(); justLinked=true; } return true; }
+handleMagicLink();
 // Cross-origin naar Apps Script: simpele requests (geen custom headers -> geen preflight), redirect volgen, geen cookies,
 // 60 s timeout (koude start kan ~40 s duren) en 1x opnieuw proberen.
 function jsonp(url,timeout=60000){ return new Promise((res,rej)=>{ const cb='__wcb'+Date.now()+Math.floor(Math.random()*1e4); const sc=document.createElement('script');
@@ -18,8 +36,8 @@ async function api(method,params,body,cfg=CFG,tries=2){
     if(/geen JSON/.test(e.message)) throw e;
     // iOS-fallback: JSONP via <script>. Voor POST alleen als het log klein genoeg is (zonder screenshot).
     if(method==='GET'){ const j=await jsonp(jsonpUrl(params,cfg)); lastTransport='jsonp'; return j; }
-    const lg={...body.log}; delete lg.screenshot; const data=JSON.stringify(lg);
-    if(data.length<6000){ const j=await jsonp(jsonpUrl({action:'log',data},cfg)); lastTransport='jsonp'; return j; }
+    const lg={...body.log}; delete lg.screenshot;
+    if(JSON.stringify(lg).length<6000){ const j=await jsonp(jsonpUrl({action:'log',data:JSON.stringify({log:lg})},cfg)); lastTransport='jsonp'; return j; }
     throw e;
   }
 }
@@ -55,7 +73,7 @@ let PLAN = LS.get('plan', []);
 async function loadPlan(){
   try{
     let url, data;
-    if(CFG.API_URL){
+    if(syncOn()){
       const f=new Date(),t=new Date(); f.setDate(f.getDate()-(CFG.PLAN_DAYS_BACK||14)); t.setDate(t.getDate()+(CFG.PLAN_DAYS_AHEAD||28));
       data=await api('GET',{action:'plan',from:ymd(f),to:ymd(t)});
     } else { const r=await fetch('workouts.json?'+Date.now()); data=await r.json(); }
@@ -63,8 +81,11 @@ async function loadPlan(){
     const arr=Array.isArray(data)?data:(data.workouts||[]);
     if(arr.length){PLAN=arr.sort((a,b)=>a.date.localeCompare(b.date)); LS.set('plan',PLAN); LS.set('planAt',Date.now());}
   }catch(e){ console.warn('plan offline, cache gebruikt',e); }
-  route();
+  softRoute();
 }
+// Achtergrond-updates (plan/logs) mogen een scherm met invoervelden niet opnieuw tekenen (wiste ingetypte tekst)
+function softRoute(){ const v=(location.hash.slice(1)||'vandaag').split('/'); const a=document.activeElement;
+  if(v[0]==='instellingen'||(v[0]==='w'&&v[2]==='klaar')||(a&&/INPUT|TEXTAREA/.test(a.tagName)))return; route(); }
 const byId = id => PLAN.find(w=>w.id===id);
 
 /* ---------- logs (Mike's log-object) ---------- */
@@ -95,10 +116,10 @@ function mergeServerLogs(arr){
   LS.set('queue',[...q]); return n;
 }
 async function loadServerLogs(){
-  if(!CFG.API_URL)return;
+  if(!syncOn())return;
   const f=new Date(); f.setDate(f.getDate()-180); const t=new Date(); t.setDate(t.getDate()+7);
   try{ const j=await api('GET',{action:'logs',from:ymd(f),to:ymd(t)});
-    if(j&&j.ok&&Array.isArray(j.logs)){ const n=mergeServerLogs(j.logs); serverLogsState='ok '+j.logs.length+' ('+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})+')'; LS.set('serverLogsState',serverLogsState); if(n)route(); }
+    if(j&&j.ok&&Array.isArray(j.logs)){ const n=mergeServerLogs(j.logs); serverLogsState='ok '+j.logs.length+' ('+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})+')'; LS.set('serverLogsState',serverLogsState); if(n)softRoute(); }
     else { serverLogsState=(j&&/unknown action/.test(j.error||''))?'nog niet beschikbaar (Code.gs-update nodig)':'fout: '+((j&&j.error)||'?'); LS.set('serverLogsState',serverLogsState); }
   }catch(e){ serverLogsState='niet bereikbaar ('+e.message+')'; LS.set('serverLogsState',serverLogsState); }
 }
@@ -108,7 +129,7 @@ const allLogs = () => Object.keys(localStorage).filter(k=>k.startsWith('log:')).
 let flushing=false;
 async function flush(){
   const q=LS.get('queue',[]); syncLabel();
-  if(!CFG.API_URL||flushing||!q.length||!navigator.onLine) return;
+  if(!syncOn()||flushing||!q.length||!navigator.onLine) return;
   flushing=true;
   for(const id of q){
     const l=LS.get(logKey(id)); if(!l) continue;
@@ -119,7 +140,7 @@ async function flush(){
   }
   flushing=false; syncLabel();
 }
-function syncLabel(){ const n=LS.get('queue',[]).length; $('#sync').textContent=!CFG.API_URL?'lokaal':(n?('⏳ '+n+' te syncen'):'✓ gesynct'); }
+function syncLabel(){ const n=LS.get('queue',[]).length; $('#sync').textContent=!syncOn()?'niet gekoppeld':(n?('⏳ '+n+' te syncen'):'✓ gesynct'); }
 addEventListener('online',flush); setInterval(flush,30000); document.addEventListener('visibilitychange',()=>{if(!document.hidden)flush()});
 
 /* ---------- audio / signaal / wake lock ---------- */
@@ -170,7 +191,7 @@ function route(){
   if(v==='w')return viewWorkout(byId(arg),tab);
   return viewToday();
 }
-addEventListener('hashchange',()=>{route();scrollTo(0,0)});
+addEventListener('hashchange',()=>{ if(handleMagicLink()){ syncLabel(); toast('Gekoppeld ✓'); loadPlan(); flush().then(loadServerLogs); } route(); scrollTo(0,0); });
 const MAAND=['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'], DAG=['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
 const longDate=ds=>{const d=new Date(ds+'T12:00');return DAG[d.getDay()]+' '+d.getDate()+' '+MAAND[d.getMonth()];};
 const isRun=w=>w.type==='run_z2'||w.type==='run_tempo';
@@ -182,7 +203,7 @@ function weekOf(ds){ const d=new Date(ds+'T12:00'); d.setDate(d.getDate()-((d.ge
 
 /* ---------- Vandaag ---------- */
 function viewToday(){
-  const t=today(); if(!PLAN.length){ app.innerHTML='<div class="eyebrow">'+longDate(t)+'</div><h1>Nog geen plan</h1><p class="meta">Er is nog geen workout geladen. Verbinding nodig?</p>'; return; }
+  const t=today(); const unl=!syncOn()?`<a class="card wlink" href="#instellingen" style="outline:2px solid var(--accent)"><span><b>Niet gekoppeld</b><br><span class="meta">Tik om te koppelen met Mike</span></span><span class="chip k">Koppel</span></a>`:''; if(!PLAN.length){ app.innerHTML=unl+'<div class="eyebrow">'+longDate(t)+'</div><h1>Nog geen plan</h1><p class="meta">Er is nog geen workout geladen. Verbinding nodig?</p>'; return; }
   const todays=PLAN.filter(w=>w.date===t); let w=todays[0], ey=longDate(t);
   if(!w){ w=PLAN.find(x=>x.date>t); if(w) ey='Eerstvolgende · '+longDate(w.date); }
   let h='';
@@ -201,10 +222,10 @@ function viewToday(){
   if(ws.length) h+='<h2>Deze week</h2><div class="card"><ul class="list">'+ws.map(x=>`<li><a href="#w/${esc(x.id)}">${DAYS[wk.indexOf(x.date)][0].toUpperCase()+DAYS[wk.indexOf(x.date)][1]} · ${esc(x.title)}</a>${stBadge(x)}</li>`).join('')+'</ul></div>';
   const nxt=PLAN.filter(x=>x.date>wk[6]).slice(0,3);
   if(nxt.length) h+='<h2>Daarna</h2><div class="card"><ul class="list">'+nxt.map(x=>`<li><a href="#w/${esc(x.id)}">${esc(x.date.slice(8))}/${+x.date.slice(5,7)} · ${esc(x.title)}</a>${stBadge(x)}</li>`).join('')+'</ul></div>';
-  app.innerHTML=h+`<div class="meta" style="text-align:center;margin-top:16px;font-size:12px">${VLABEL}</div>`;
+  app.innerHTML=unl+h+`<div class="meta" style="text-align:center;margin-top:16px;font-size:12px">${VLABEL}</div>`;
 }
 const offlineTag=()=>navigator.onLine?'':' · Offline · wordt gesynct';
-addEventListener('offline',()=>route()); addEventListener('online',()=>route());
+addEventListener('offline',()=>softRoute()); addEventListener('online',()=>softRoute());
 
 /* ---------- Workout (kracht / thuis / rust) ---------- */
 function tabsOf(w){ const T=[]; (w.blocks||[]).forEach((b,bi)=>{ if(isMain(b)) for(let r=1;r<=(w.rounds||1);r++)T.push({key:'r'+r,label:(w.rounds||1)>1?'Ronde '+r:(w.amrap_min?'AMRAP':'Hoofdset'),block:b,round:r});
@@ -393,22 +414,39 @@ function viewRun(w){
 
 /* ---------- Instellingen (API-URL + token alleen lokaal op het toestel) ---------- */
 function viewSettings(){
-  const c=LS.get('cfg',{}), q=LS.get('queue',[]).length;
-  app.innerHTML=`<div class="eyebrow">Sync met Google Drive</div><h1>Instellingen</h1>
-   <div class="note">Deze gegevens blijven alleen op deze telefoon (niet in de code). Leeg = alleen lokaal.</div>
-   <label class="field"><span>API-URL (Apps Script /exec)</span><input id="api" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(c.API_URL||'')}"></label>
-   <label class="field"><span>Token</span><input id="tok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(c.TOKEN||'')}"></label>
-   <div class="grid2"><button class="btn" id="test">Test verbinding</button><button class="btn danger" id="clr">Wissen</button></div>
-   <div class="grid2" style="margin-top:8px"><button class="btn" id="diag">Diagnose</button><button class="btn" id="refresh">Vernieuwen</button></div>
-   <div class="meta" style="margin-top:8px">Logs van server: ${esc(serverLogsState||'nog niet opgehaald')}</div>
-   <div class="card meta" id="res">${CFG.API_URL?'Sync staat aan':'Sync staat uit (lokaal)'} · ${q} in wachtrij</div>
+  const c=LS.get('cfg',{}), q=LS.get('queue',[]).length, dr=JSON.parse(sessionStorage.getItem('cfgDraft')||'{}');
+  const maskT=t=>t?t.slice(0,3)+'…'+t.slice(-2):'';
+  const linked=syncOn();
+  app.innerHTML=`<div class="eyebrow">Sync met Google Drive</div><h1>${linked?'Instellingen':'Koppel de app'}</h1>
+   ${linked?`<div class="card"><div class="lg"><b>✓ Gekoppeld</b></div><div class="meta">Token ${esc(maskT(CFG.TOKEN))} · ${q} in wachtrij · logs van server: ${esc(serverLogsState||'nog niet opgehaald')}</div></div>`
+   :`<div class="note">Open de koppellink die je van Mike kreeg, of kopieer hem en tik hieronder op <b>Plakken</b>.</div>
+   <button class="btn primary" id="paste">📋 Plakken &amp; koppelen</button>
+   <label class="field"><span>Of plak de link hier</span><input id="link" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://thijs-grokbot.github.io/workout/#k=…"></label>
+   <button class="btn" id="linkgo">Koppel</button>`}
+   <div class="card meta" id="res">${linked?'Sync staat aan':'Sync staat uit (niet gekoppeld)'} · ${q} in wachtrij</div>
+   <div class="grid2"><button class="btn" id="refresh" ${linked?'':'disabled'}>Vernieuwen</button><button class="btn" id="diag">Diagnose</button></div>
    <pre class="card diag" id="dout" hidden></pre><button class="btn" id="copy" hidden>Kopieer</button>
+   <details class="card adv"><summary>Geavanceerd</summary>
+   <label class="field"><span>API-URL (Apps Script /exec)</span><input id="api" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(dr.API_URL??c.API_URL??CFG.API_URL??'')}"></label>
+   <label class="field"><span>Token</span><input id="tok" type="text" class="secret" name="workout-sync-key" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="${c.TOKEN?'opgeslagen: '+esc(maskT(c.TOKEN))+' (leeg laten = houden)':'token'}" value="${esc(dr.TOKEN||'')}"></label>
+   ${c.TOKEN?`<div class="meta">✓ Token opgeslagen: ${esc(maskT(c.TOKEN))} (${c.TOKEN.length} tekens)</div>`:''}
+   <div class="grid2"><button class="btn" id="test">Test verbinding</button><button class="btn" id="save">Opslaan</button></div>
+   <button class="btn danger small" id="clr">Koppeling wissen</button></details>
    <div class="card"><div class="eyebrow">Versie</div><div class="lg"><b>${VLABEL}</b></div><div class="meta" id="swv">service worker: …</div></div>`;
   swVersion().then(v=>{const el=app.querySelector('#swv'); if(el)el.textContent='service worker: '+v;});
-  setBar(`<button class="btn primary" id="save">Opslaan</button>`);
-  const val=()=>({API_URL:clean(app.querySelector('#api').value).replace(/[.,;]+$/,''),TOKEN:clean(app.querySelector('#tok').value)});
+  // leeg of gemaskeerd tokenveld = opgeslagen token houden
+  const val=()=>{ const st=LS.get('cfg',{}); let t=clean(app.querySelector('#tok').value); if(!t||t.includes('…'))t=st.TOKEN||CFG.TOKEN||'';
+    return {API_URL:clean(app.querySelector('#api').value).replace(/[.,;]+$/,'')||st.API_URL||'',TOKEN:t}; };
+  const keepDraft=()=>sessionStorage.setItem('cfgDraft',JSON.stringify({API_URL:app.querySelector('#api').value,TOKEN:app.querySelector('#tok').value}));
+  app.querySelectorAll('#api,#tok').forEach(i=>i.addEventListener('input',keepDraft));
+  const link=async txt=>{ const v=parseLink(txt); const r=app.querySelector('#res');
+    if(!v){ r.textContent='✗ Geen geldige koppellink (moet #k=… bevatten)'; return; } if(!v.API_URL){ r.textContent='✗ Geen API-URL in link of config'; return; }
+    if(saveSettings(v)) toast('Gekoppeld ✓'); };
   app.onclick=async e=>{ const id=e.target.id, r=app.querySelector('#res');
-    if(id==='clr'&&confirm('Sync-gegevens wissen? (logs blijven bewaard)')){ localStorage.removeItem('cfg'); location.reload(); }
+    if(id==='paste'){ try{ const t=await navigator.clipboard.readText(); return link(t); }catch(err){ r.textContent='Plakken lukt niet automatisch: houd het veld hieronder ingedrukt → Plak.'; app.querySelector('#link').focus(); return; } }
+    if(id==='linkgo') return link(app.querySelector('#link').value);
+    if(id==='save') return saveSettings(val());
+    if(id==='clr'&&confirm('Koppeling wissen? (logs blijven bewaard)')){ localStorage.removeItem('cfg'); location.reload(); }
     if(id==='diag') return diagnose(val());
     if(id==='refresh'){ e.target.textContent='Bezig…'; await loadPlan(); await flush(); await loadServerLogs(); return viewSettings(); }
     if(id==='copy'){ const t=app.querySelector('#dout').textContent; try{ await navigator.clipboard.writeText(t); e.target.textContent='✓ Gekopieerd'; }catch(err){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); e.target.textContent='✓ Gekopieerd'; } return; }
@@ -418,9 +456,26 @@ function viewSettings(){
         r.textContent=j.ok?'✓ Verbinding werkt ('+Math.round((Date.now()-t0)/1000)+' s)':'✗ '+(j.error==='unauthorized'?'Token klopt niet':j.error); }
       catch(err){ r.textContent='✗ Geen verbinding ('+err.message+'). Check internet, of open de URL één keer in Safari.'; }
       finally{ e.target.disabled=false; } } };
-  bar.querySelector('#save').onclick=()=>{ const v=val(); if(v.API_URL&&!/^https:\/\//.test(v.API_URL)){alert('URL moet met https:// beginnen');return;} LS.set('cfg',v); location.replace('#vandaag'); location.reload(); };
+  app.querySelector('#link')?.addEventListener('paste',e=>setTimeout(()=>{ if(parseLink(e.target.value))link(e.target.value); },50));
 }
 
+function saveSettings(v){
+  const r=app.querySelector('#res');
+  if(v.API_URL&&!/^https:\/\//.test(v.API_URL)){ alert('URL moet met https:// beginnen'); return false; }
+  const ok=saveCfg(v);
+  if(!ok){ if(r)r.textContent='✗ Opslaan mislukt (opslag vol of geblokkeerd?)'; return false; }
+  sessionStorage.removeItem('cfgDraft'); syncLabel(); viewSettings();
+  const r2=app.querySelector('#res'); if(r2)r2.textContent='✓ Gekoppeld · sync aan · bezig met synchroniseren…';
+  (async()=>{ await flush(); await loadPlan(); await loadServerLogs(); await flush(); if((location.hash||'').includes('instellingen'))viewSettings(); })();
+  return true;
+}
+// synchroon opslaan, teruglezen ter controle, CFG direct bijwerken (geen reload nodig)
+function saveCfg(v){
+  const prev=LS.get('cfg',{}); const next={API_URL:v.API_URL||'',TOKEN:v.TOKEN||prev.TOKEN||''};
+  try{ localStorage.setItem('cfg',JSON.stringify(next)); }catch(e){ return false; }
+  const back=LS.get('cfg',{}); if(back.API_URL!==next.API_URL||back.TOKEN!==next.TOKEN)return false;
+  CFG.API_URL=next.API_URL; CFG.TOKEN=next.TOKEN; return true;
+}
 function swVersion(){ return new Promise(res=>{ const c=navigator.serviceWorker&&navigator.serviceWorker.controller; if(!c)return res('geen (niet actief)');
   const t=setTimeout(()=>res('onbekend (oud?)'),1500); navigator.serviceWorker.addEventListener('message',function h(e){ if(e.data&&e.data.version){clearTimeout(t);navigator.serviceWorker.removeEventListener('message',h);res(e.data.version);} }); c.postMessage('version'); }); }
 async function diagnose(v){
@@ -475,4 +530,5 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!hadCtrl||reloaded)return; reloaded=true; sessionStorage.setItem('updated','1'); location.reload(); });
 }
 syncLabel(); route(); loadPlan(); flush().then(loadServerLogs);
+if(justLinked) setTimeout(()=>toast('Gekoppeld ✓'),300);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ loadPlan(); flush().then(loadServerLogs); } });
