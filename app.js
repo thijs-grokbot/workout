@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v12', APP_BUILD='6df6ee8+';
+const APP_VERSION='v12.1', APP_BUILD='6df6ee8+';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -29,17 +29,22 @@ function jsonp(url,timeout=60000){ return new Promise((res,rej)=>{ const cb='__w
   window[cb]=d=>done(res,d); sc.onerror=()=>done(rej,new Error('JSONP laadfout'));
   sc.onload=()=>setTimeout(()=>{ if(window[cb]) done(rej,new Error('geen JSONP-antwoord: Code.gs nog niet bijgewerkt (callback)')); },100); sc.src=url+(url.includes('?')?'&':'?')+'callback='+cb; document.head.appendChild(sc); }); }
 function jsonpUrl(params,cfg){ return cfg.API_URL+'?'+new URLSearchParams({...params,token:cfg.TOKEN,_:Date.now()}); }
-let lastTransport='';
-async function api(method,params,body,cfg=CFG,tries=2){
-  try{ const j=await api0(method,params,body,cfg,tries); lastTransport='fetch'; return j; }
-  catch(e){
-    if(/geen JSON/.test(e.message)) throw e;
-    // iOS-fallback: JSONP via <script>. Voor POST alleen als het log klein genoeg is (zonder screenshot).
+let lastTransport='', apiChain=Promise.resolve();
+// Apps Script geeft soms (vooral bij gelijktijdige requests/koude start) een 404-HTML-pagina zonder CORS terug.
+// Daarom: requests één voor één, 3 pogingen met pauze, daarna JSONP.
+function api(method,params,body,cfg=CFG,tries=3){ const run=()=>apiX(method,params,body,cfg,tries); const p=apiChain.then(run,run); apiChain=p.catch(()=>{}); return p; }
+async function apiX(method,params,body,cfg,tries){
+  let last;
+  for(let i=0;i<tries;i++){
+    try{ const j=await api0(method,params,body,cfg,1); lastTransport='fetch'; return j; }
+    catch(e){ last=e; if(/time-out/.test(e.message))break; await new Promise(r=>setTimeout(r,800*(i+1))); }
+  }
+  try{
     if(method==='GET'){ const j=await jsonp(jsonpUrl(params,cfg)); lastTransport='jsonp'; return j; }
     const lg={...body.log}; delete lg.screenshot;
     if(JSON.stringify(lg).length<6000){ const j=await jsonp(jsonpUrl({action:'log',data:JSON.stringify({log:lg})},cfg)); lastTransport='jsonp'; return j; }
-    throw e;
-  }
+  }catch(e2){ last=new Error(last.message+' / '+e2.message); }
+  throw last;
 }
 async function api0(method,params,body,cfg=CFG,tries=2){
   let last;
