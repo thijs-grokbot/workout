@@ -1,5 +1,25 @@
 'use strict';
 const CFG = Object.assign({}, window.CONFIG || {}, (()=>{try{return JSON.parse(localStorage.getItem('cfg')||'{}')}catch(e){return {}}})());
+const clean=v=>String(v||'').replace(/[\u200B-\u200D\uFEFF\s]+/g,'').replace(/\\_/g,'_');
+CFG.API_URL=clean(CFG.API_URL).replace(/[.,;]+$/,''); CFG.TOKEN=clean(CFG.TOKEN);
+// Cross-origin naar Apps Script: simpele requests (geen custom headers -> geen preflight), redirect volgen, geen cookies,
+// 60 s timeout (koude start kan ~40 s duren) en 1x opnieuw proberen.
+async function api(method,params,body,cfg=CFG,tries=2){
+  let last;
+  for(let i=0;i<tries;i++){
+    const ac=new AbortController(), t=setTimeout(()=>ac.abort(),60000);
+    try{
+      const url=cfg.API_URL+(method==='GET'?'?'+new URLSearchParams({...params,token:cfg.TOKEN,_:Date.now()}):'');
+      const opt={method,redirect:'follow',credentials:'omit',signal:ac.signal};
+      if(method==='POST'){opt.headers={'Content-Type':'text/plain;charset=utf-8'};opt.body=JSON.stringify({...body,token:cfg.TOKEN});}
+      const r=await fetch(url,opt); const txt=await r.text(); let j;
+      try{ j=JSON.parse(txt); }catch(e){ throw new Error(/<html|<!doctype/i.test(txt)?'geen JSON maar een webpagina (toegang van de web-app moet op "Iedereen" staan)':'onverwacht antwoord (HTTP '+r.status+')'); }
+      return j;
+    }catch(e){ last=e.name==='AbortError'?new Error('time-out na 60 s'):e; if(/geen JSON|onverwacht/.test(last.message))break; }
+    finally{ clearTimeout(t); }
+  }
+  throw last;
+}
 const $ = s => document.querySelector(s), app = $('#app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const LS = { get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}, set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)) };
@@ -18,9 +38,8 @@ async function loadPlan(){
     let url, data;
     if(CFG.API_URL){
       const f=new Date(),t=new Date(); f.setDate(f.getDate()-(CFG.PLAN_DAYS_BACK||14)); t.setDate(t.getDate()+(CFG.PLAN_DAYS_AHEAD||28));
-      url=CFG.API_URL+'?action=plan&from='+ymd(f)+'&to='+ymd(t)+'&token='+encodeURIComponent(CFG.TOKEN||'');
-    } else url='workouts.json?'+Date.now();
-    const r=await fetch(url,{cache:'no-store'}); data=await r.json();
+      data=await api('GET',{action:'plan',from:ymd(f),to:ymd(t)});
+    } else { const r=await fetch('workouts.json?'+Date.now()); data=await r.json(); }
     if(data && data.error) throw new Error(data.error);
     const arr=Array.isArray(data)?data:(data.workouts||[]);
     if(arr.length){PLAN=arr.sort((a,b)=>a.date.localeCompare(b.date)); LS.set('plan',PLAN); LS.set('planAt',Date.now());}
@@ -54,8 +73,7 @@ async function flush(){
   for(const id of q){
     const l=LS.get(logKey(id)); if(!l) continue;
     try{
-      const r=await fetch(CFG.API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'log',token:CFG.TOKEN,log:l})});
-      const j=await r.json(); if(!j.ok) throw new Error(j.error||'sync mislukt');
+      const j=await api('POST',null,{action:'log',log:l}); if(!j.ok) throw new Error(j.error||'sync mislukt');
       if((LS.get(logKey(id))||{}).updated_at===l.updated_at) LS.set('queue',LS.get('queue',[]).filter(x=>x!==id));
     }catch(e){ console.warn(e); break; }
   }
@@ -343,12 +361,15 @@ function viewSettings(){
    <div class="grid2"><button class="btn" id="test">Test verbinding</button><button class="btn danger" id="clr">Wissen</button></div>
    <div class="card meta" id="res">${CFG.API_URL?'Sync staat aan':'Sync staat uit (lokaal)'} · ${q} in wachtrij</div>`;
   setBar(`<button class="btn primary" id="save">Opslaan</button>`);
-  const val=()=>({API_URL:app.querySelector('#api').value.trim(),TOKEN:app.querySelector('#tok').value.trim()});
+  const val=()=>({API_URL:clean(app.querySelector('#api').value).replace(/[.,;]+$/,''),TOKEN:clean(app.querySelector('#tok').value)});
   app.onclick=async e=>{ const id=e.target.id, r=app.querySelector('#res');
     if(id==='clr'&&confirm('Sync-gegevens wissen? (logs blijven bewaard)')){ localStorage.removeItem('cfg'); location.reload(); }
-    if(id==='test'){ const v=val(); if(!/^https:\/\//.test(v.API_URL)){r.textContent='Vul een https-URL in.';return;} r.textContent='Bezig…';
-      try{ const j=await (await fetch(v.API_URL+'?action=plan&from='+today()+'&to='+today()+'&token='+encodeURIComponent(v.TOKEN))).json();
-        r.textContent=j.ok?'✓ Verbinding werkt':'✗ '+(j.error==='unauthorized'?'Token klopt niet':j.error); }catch(err){ r.textContent='✗ Geen verbinding ('+err.message+')'; } } };
+    if(id==='test'){ const v=val(); if(!/^https:\/\//.test(v.API_URL)){r.textContent='Vul een https-URL in.';return;} if(!/^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(v.API_URL)){r.textContent='✗ URL moet eindigen op /exec';return;}
+      r.textContent='Verbinden… (kan even duren, tot ~1 min)'; e.target.disabled=true; const t0=Date.now();
+      try{ const j=await api('GET',{action:'plan',from:today(),to:today()},null,v);
+        r.textContent=j.ok?'✓ Verbinding werkt ('+Math.round((Date.now()-t0)/1000)+' s)':'✗ '+(j.error==='unauthorized'?'Token klopt niet':j.error); }
+      catch(err){ r.textContent='✗ Geen verbinding ('+err.message+'). Check internet, of open de URL één keer in Safari.'; }
+      finally{ e.target.disabled=false; } } };
   bar.querySelector('#save').onclick=()=>{ const v=val(); if(v.API_URL&&!/^https:\/\//.test(v.API_URL)){alert('URL moet met https:// beginnen');return;} LS.set('cfg',v); location.replace('#vandaag'); location.reload(); };
 }
 
