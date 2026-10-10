@@ -84,3 +84,8 @@ nav a.gear{flex:0 0 48px;font-size:22px}
 .secret{-webkit-text-security:disc;text-security:disc}
 details.adv summary{min-height:var(--tap);display:flex;align-items:center;font-weight:700;color:var(--muted);cursor:pointer}
 [hidden]{display:none!important}.wlink{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:var(--tap)}
+.donehead{display:flex;align-items:center;gap:var(--s3);margin:var(--s2) 0 var(--s3)}
+.dcheck{width:var(--tap);height:var(--tap);border-radius:14px;background:var(--success);color:var(--on-accent);display:grid;place-items:center;font-size:30px;font-weight:800;flex:none}
+.donehead .lg b{font-size:var(--fs-xl);font-weight:800}
+.stats{gap:var(--s2);margin:var(--s3) 0}.stat{padding:var(--s3) var(--s2)}.stat .t72{font-size:30px}
+.chip.part{background:var(--accent);color:var(--on-accent)}.chip.skip{color:var(--danger)}

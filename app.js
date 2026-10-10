@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v11', APP_BUILD='767d1f1+';
+const APP_VERSION='v12', APP_BUILD='6df6ee8+';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -208,10 +208,11 @@ function viewToday(){
   if(!w){ w=PLAN.find(x=>x.date>t); if(w) ey='Eerstvolgende · '+longDate(w.date); }
   let h='';
   if(!w) h=`<div class="eyebrow">${longDate(t)}</div><h1>Niets gepland</h1>`;
+  else if(w.date===t&&statusOf(w)==='gedaan'){ h+=doneSummary(w,t); }
   else {
     const d=durOf(w);
     h+=`<div class="eyebrow">${esc(ey)}${offlineTag()}</div><h1>${esc(w.title)}</h1>
-    <div><span class="chip ${w.type==='strength'||w.type==='home'?'k':''}">${isRun(w)?'Lopen':TYPES[w.type]}</span>${d?`<span class="chip">± ${d} min</span>`:''}${w.rounds>1?`<span class="chip">${w.rounds} rondes</span>`:''}${w.hr_target?`<span class="chip">HR ${esc(w.hr_target)}</span>`:''}</div>
+    <div>${statusOf(w)==='deels'?'<span class="chip part">Deels gedaan</span>':''}${statusOf(w)==='overgeslagen'?'<span class="chip skip">Overgeslagen</span>':''}<span class="chip ${w.type==='strength'||w.type==='home'?'k':''}">${isRun(w)?'Lopen':TYPES[w.type]}</span>${d?`<span class="chip">± ${d} min</span>`:''}${w.rounds>1?`<span class="chip">${w.rounds} rondes</span>`:''}${w.hr_target?`<span class="chip">HR ${esc(w.hr_target)}</span>`:''}</div>
     <div class="card"><ul class="list">${(w.blocks||[]).map(b=>`<li><span>${esc(b.name)}${isMain(b)?' · '+b.items.length+' oefeningen':''}</span><span class="meta">${isMain(b)&&w.rounds>1?w.rounds+' rondes':esc(b.duration||'')}</span></li>`).join('')}</ul></div>
     ${(w.tips||[]).length?`<div class="note">${w.tips.map(esc).join(' · ')}</div>`:''}`;
     if(todays.length>1) h+='<h2>Ook vandaag</h2><div class="card"><ul class="list">'+todays.slice(1).map(x=>`<li><a href="#w/${esc(x.id)}">${esc(x.title)}</a>${stBadge(x)}</li>`).join('')+'</ul></div>';
@@ -223,6 +224,28 @@ function viewToday(){
   const nxt=PLAN.filter(x=>x.date>wk[6]).slice(0,3);
   if(nxt.length) h+='<h2>Daarna</h2><div class="card"><ul class="list">'+nxt.map(x=>`<li><a href="#w/${esc(x.id)}">${esc(x.date.slice(8))}/${+x.date.slice(5,7)} · ${esc(x.title)}</a>${stBadge(x)}</li>`).join('')+'</ul></div>';
   app.innerHTML=unl+h+`<div class="meta" style="text-align:center;margin-top:16px;font-size:12px">${VLABEL}</div>`;
+}
+function doneSummary(w,t){
+  const l=LS.get(logKey(w.id))||{}, sets=l.sets||[], main=(w.blocks||[]).filter(isMain).map(b=>b.name);
+  const ms=sets.filter(s=>main.includes(s.block)||(!s.block&&main.length)), msd=ms.filter(s=>s.done);
+  const R=w.rounds||1, rDone=Array.from({length:R},(_,i)=>i+1).filter(r=>{const x=ms.filter(s=>s.round===r);return x.length&&x.every(s=>s.done)}).length;
+  const heavy={}; msd.forEach(s=>{ if(s.load_done==null||s.load_done==='')return; if(!(s.exercise in heavy)||+s.load_done>heavy[s.exercise].v)heavy[s.exercise]={v:+s.load_done,u:s.load_unit||'kg'}; });
+  const order=[...new Set(ms.map(s=>s.exercise))];
+  const ru=l.run||{}, run=isRun(w);
+  const stat=(lbl,val)=>`<div class="card c stat"><div class="eyebrow">${lbl}</div><div class="t72">${val}</div></div>`;
+  let h=`<div class="eyebrow">${esc(longDate(t))}${offlineTag()}</div>
+   <div class="donehead"><span class="dcheck">✓</span><div><div class="lg"><b>Gedaan</b></div><div class="meta">${esc(w.title)}</div></div></div>
+   <div class="grid3 stats">${stat('RPE',l.rpe!=null?esc(l.rpe):'–')}${run?stat('Duur',ru.duration_min!=null?esc(ru.duration_min)+'′':'–')+stat('Afstand',ru.distance_km!=null?esc(ru.distance_km)+' km':'–')
+     :stat('Rondes',rDone+'/'+R)+stat('Sets',msd.length+'/'+ms.length)}</div>`;
+  if(run&&(ru.avg_hr||ru.max_hr)) h+=`<div class="card"><ul class="list"><li><span>Gem. hartslag</span><b>${esc(ru.avg_hr??'–')}</b></li><li><span>Max. hartslag</span><b>${esc(ru.max_hr??'–')}</b></li></ul></div>`;
+  const hv=order.filter(e=>heavy[e]);
+  if(hv.length) h+=`<h2>Zwaarste gewicht</h2><div class="card"><ul class="list">${hv.map(e=>`<li><span>${esc(e)}</span><span><b>${heavy[e].v} kg</b>${/2×/.test(heavy[e].u)?' <span class="meta">2×</span>':''}${l.feedback&&l.feedback[e]?` <span class="meta">· ${esc(l.feedback[e])}</span>`:''}</span></li>`).join('')}</ul></div>`;
+  if(l.notes) h+=`<div class="note">${esc(l.notes)}</div>`;
+  h+=`<p><a class="btn small" href="#w/${esc(w.id)}">Workout bekijken →</a></p>`;
+  const n=PLAN.find(x=>x.date>t);
+  if(n){ const tm=new Date(t+'T12:00'); tm.setDate(tm.getDate()+1); const isTm=n.date===ymd(tm), d=durOf(n);
+    h+=`<h2>${isTm?'Morgen':'Volgende · '+esc(longDate(n.date))}</h2><a class="card wlink" href="#w/${esc(n.id)}"><span><b>${esc(n.title)}</b><br><span class="meta">${isRun(n)?'Lopen':TYPES[n.type]||esc(n.type)}${d?' · ± '+d+' min':''}${n.rounds>1?' · '+n.rounds+' rondes':''}${n.hr_target?' · HR '+esc(n.hr_target):''}</span></span><span class="chip">Open →</span></a>`; }
+  return h;
 }
 const offlineTag=()=>navigator.onLine?'':' · Offline · wordt gesynct';
 addEventListener('offline',()=>softRoute()); addEventListener('online',()=>softRoute());
