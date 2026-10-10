@@ -72,3 +72,10 @@ button:disabled{opacity:.4}
 .bars div span{position:absolute;top:-22px;left:0;right:0;text-align:center;font-size:var(--fs-xs);font-weight:700}
 .axis{display:flex;gap:10px;margin-bottom:8px}.axis span{flex:1;text-align:center;font-size:var(--fs-xs);color:var(--muted)}
 nav a.gear{flex:0 0 48px;font-size:22px}
+.itimer{grid-column:1/-1;display:grid;grid-template-columns:var(--tap) 1fr var(--tap);gap:var(--s2);align-items:center}
+.itimer .ib{height:var(--tap);border:0;border-radius:14px;background:var(--surface-2);color:var(--text);font-size:22px;font-weight:800}
+.itimer .ib.go{background:var(--accent);color:var(--on-accent)}
+.itimer .val{background:transparent;border:0;color:var(--text);text-align:center;min-height:var(--tap);font:800 var(--fs-lg) var(--font);font-variant-numeric:tabular-nums;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.itimer .val small{display:block;font-size:var(--fs-xs);color:var(--muted);font-weight:600}.itimer .ring{display:block;margin:6px 0 0}
+.ex.fin{background:var(--accent);color:var(--on-accent)}.ex.fin .meta{color:var(--on-accent)}
+.ex.fin .itimer .val,.ex.fin .itimer .val small{color:var(--on-accent)}.ex.fin .ring i{background:var(--on-accent)}

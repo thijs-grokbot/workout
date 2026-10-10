@@ -107,7 +107,7 @@ if(R) openTimer();
 function route(){
   const h=location.hash.slice(1)||'vandaag', [v,arg,tab]=h.split('/');
   document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));
-  clearInterval(runT); app.onclick=null; app.onchange=null; bar.onclick=null; setBar('');
+  clearInterval(runT); clearInterval(itemT); app.onclick=null; app.onchange=null; bar.onclick=null; setBar('');
   if(v==='instellingen')return viewSettings(); if(v==='week')return viewWeek(); if(v==='progressie')return viewProg();
   if(v==='w')return viewWorkout(byId(arg),tab);
   return viewToday();
@@ -171,6 +171,7 @@ function viewWorkout(w,tab){
     const sum=[it.reps&&(main?(s.reps_done||it.reps):it.reps)+(/^\d+$/.test(String(s.reps_done||it.reps))?' reps':''),hasLoad&&(s.done?s.load_done+' kg':'')+(it.load_range?(s.done?' (':(u2?u2+' ':'')+'')+it.load_range.join('–')+(s.done?')':' kg'):'')].filter(Boolean).join(' · ');
     h+=`<div class="ex ${s.done?'done':''} ${firstOpen&&firstOpen.k===k?'active':''}" data-chk="${k}"><div class="check">${s.done?'✓':''}</div>
      <div><div class="name">${esc(it.exercise)}</div><div class="meta">${esc(sum)}</div>${it.notes?`<div class="meta">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div>`;
+    h+=itRow(w,k,it,s);
     if(main&&!s.done){ const pv=prevLoad(w,it.exercise), mn=it.load_range?it.load_range[0]:0;
       if(hasLoad) h+=`<div class="stepper"><button data-w="${k}" data-d="-1" ${+s.load_done<=0?'disabled':''}>−</button><button class="val" data-wt="${k}">${s.load_done??'–'} kg<small>${esc(u2?u2+' · ':'')}${it.load_range?'bereik '+it.load_range.join('–'):''}${pv?' · vorige keer '+pv.v:''}</small></button><button data-w="${k}" data-d="1">+</button></div>`;
       const rn=num(s.reps_done);
@@ -191,21 +192,48 @@ function viewWorkout(w,tab){
   bar.querySelector('#next').onclick=()=>{ LS.set('training',1); wake(); if(firstOpen)return check(firstOpen.k); if(ti<T.length-1)return go(T[ti+1].key); location.hash='#w/'+w.id+'/klaar'; };
   app.onclick=e=>{ const b=e.target.closest('button,[data-chk]'); if(!b)return; const d=b.dataset;
     if(d.tab)return go(d.tab);
+    if(d.ip!=null){ unlockAudio(); wake(); LS.set('training',1); const key=itKey(w,d.ip); const it=cur.block.items.find(i=>i.exercise===l.sets[d.ip].exercise);
+      let st=LS.get(key)||{dur:parseDur(it.duration||it.reps),start:0,pausedAt:0,pausedTotal:0};
+      if(!st.start)st.start=Date.now(); else if(st.pausedAt){st.pausedTotal+=Date.now()-st.pausedAt;st.pausedAt=0;} else st.pausedAt=Date.now();
+      LS.set(key,st); return viewWorkout(w,cur.key); }
+    if(d.ir!=null){ const st=LS.get(itKey(w,d.ir)); if(st)LS.set(itKey(w,d.ir),{dur:st.dur,start:0,pausedAt:0,pausedTotal:0}); return viewWorkout(w,cur.key); }
+    if(d.iset!=null) return pickDur(d.iset);
     if(d.w!=null){ const s=l.sets[d.w], it=cur.block.items.find(i=>i.exercise===s.exercise); const st=it.load_step||2.5; s.load_done=Math.max(0,Math.round(((+s.load_done||0)+st*d.d)*10)/10); saveLog(l); return viewWorkout(w,cur.key); }
     if(d.r!=null){ const s=l.sets[d.r]; const n=num(s.reps_done); if(n==null)return; s.reps_done=String(Math.max(0,n+(+d.d))); saveLog(l); return viewWorkout(w,cur.key); }
     if(d.wt!=null){ const s=l.sets[d.wt]; const v=prompt('Gewicht in kg',s.load_done??''); if(v!==null&&v.trim()!==''&&!isNaN(+v.replace(',','.'))){s.load_done=+v.replace(',','.');saveLog(l);} return viewWorkout(w,cur.key); }
     if(d.reps!=null){ const s=l.sets[d.reps]; const v=prompt('Reps gedaan',s.reps_done); if(v!==null){s.reps_done=v.trim();saveLog(l);} return viewWorkout(w,cur.key); }
     if(d.am){ l.amrap_rounds=Math.max(0,(l.amrap_rounds||0)+(+d.am)); saveLog(l); return viewWorkout(w,cur.key); }
     if(b.id==='amgo'){ unlockAudio(); wake(); const k='run:'+w.id; let st=LS.get(k); if(!st){LS.set(k,{start:Date.now(),pausedAt:0,pausedTotal:0});} return viewWorkout(w,cur.key); }
-    if(b.id==='reset'){ if(confirm('Alle voortgang van deze workout wissen?')){ localStorage.removeItem(logKey(w.id)); localStorage.removeItem('run:'+w.id); saveLog(getLog(w)); viewWorkout(w); } return; }
+    if(b.id==='reset'){ if(confirm('Alle voortgang van deze workout wissen?')){ localStorage.removeItem(logKey(w.id)); Object.keys(localStorage).filter(x=>x.startsWith('it:'+w.id+':')).forEach(x=>localStorage.removeItem(x)); localStorage.removeItem('run:'+w.id); saveLog(getLog(w)); viewWorkout(w); } return; }
     if(d.chk!=null) return check(+d.chk);
   };
+  const pickDur=k=>{ const key=itKey(w,k), it=cur.block.items.find(i=>i.exercise===l.sets[k].exercise), st=LS.get(key);
+    const v=prompt('Tijd (bv. 5, 5:30 of 45s)', fmt(st?st.dur:parseDur(it.duration||it.reps))); if(!v)return;
+    let sec; const t=v.trim().toLowerCase(); if(/s$/.test(t))sec=parseFloat(t); else if(t.includes(':')){const p=t.split(':').map(Number);sec=p[0]*60+p[1];} else sec=parseFloat(t.replace(',','.'))*60;
+    if(sec>0){ LS.set(key,{dur:Math.round(sec),start:0,pausedAt:0,pausedTotal:0}); viewWorkout(w,cur.key); } };
+  app.querySelectorAll('[data-iset]').forEach(b=>{ let t; b.addEventListener('touchstart',()=>{t=setTimeout(()=>{t=null;pickDur(+b.dataset.iset)},550)},{passive:true}); b.addEventListener('touchend',e=>{ if(t)clearTimeout(t); else e.preventDefault(); }); b.addEventListener('contextmenu',e=>e.preventDefault()); });
+  clearInterval(itemT); itemT=setInterval(()=>{ if(!app.querySelector('.itimer'))return; tickItems(w,l,()=>viewWorkout(w,cur.key)); },250);
   if(w.amrap_min){ runT=setInterval(()=>{ const el=app.querySelector('#amclock'); if(!el)return clearInterval(runT); const st=LS.get('run:'+w.id); if(!st)return; const left=w.amrap_min*60-(Date.now()-st.start)/1000; el.textContent=fmt(Math.ceil(Math.max(0,left))); if(left<=0&&!st.done){st.done=true;LS.set('run:'+w.id,st);beep(4);flash(app);} },250); }
 }
 function amrapCard(w,l){ const st=LS.get('run:'+w.id); const left=st?Math.max(0,w.amrap_min*60-(Date.now()-st.start)/1000):w.amrap_min*60;
   return `<div class="card" style="text-align:center"><div class="eyebrow">Zoveel mogelijk rondes in ${w.amrap_min} min</div><div class="digits sm" id="amclock">${fmt(Math.ceil(left))}</div>
   ${st?'':'<button class="btn primary" id="amgo">Start AMRAP</button>'}
   <div class="stepper" style="margin-top:12px"><button data-am="-1">−</button><div class="val">${l.amrap_rounds||0} rondes<small>aantal afgerond</small></div><button data-am="1" class="plus">+1</button></div></div>`; }
+
+/* ---------- Duur-timers per oefening ---------- */
+function parseDur(t){ const m=String(t||'').match(/(\d+(?:[.,]\d+)?)(?:\s*[–-]\s*(\d+(?:[.,]\d+)?))?\s*(min|minuten|sec|seconden|s)\b/i); if(!m)return null;
+  const n=+(m[2]||m[1]).replace(',','.'); return Math.round(/^m/i.test(m[3])?n*60:n); }
+const itKey=(w,k)=>'it:'+w.id+':'+k;
+function itState(st){ if(!st)return null; const now=st.pausedAt||Date.now(); const el=Math.min(st.dur,st.start?(now-st.start-st.pausedTotal)/1000:0); return {el,left:st.dur-el,pct:100*el/st.dur,run:!!st.start&&!st.pausedAt&&el<st.dur}; }
+function itRow(w,k,it,s){ const def=parseDur(it.duration||it.reps); if(!def||s.done)return '';
+  const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{el:0,left:dur,pct:0,run:false};
+  return `<div class="itimer" data-it="${k}"><button class="ib ${x.run?'':'go'}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button>
+   <button class="val" data-iset="${k}"><span class="itl">${fmt(Math.ceil(x.left))}</span><small>van ${fmt(dur)} · tik om te wijzigen</small><span class="ring"><i style="width:${x.pct}%"></i></span></button>
+   <button class="ib" data-ir="${k}" aria-label="reset">↺</button></div>`; }
+function tickItems(w,l,rerender){ document.querySelectorAll('.itimer').forEach(el=>{ const k=+el.dataset.it, st=LS.get(itKey(w,k)); const x=itState(st); if(!x)return;
+  el.querySelector('.itl').textContent=fmt(Math.ceil(x.left)); el.querySelector('i').style.width=x.pct+'%';
+  if(x.left<=0&&!st.fired){ st.fired=true; LS.set(itKey(w,k),st); beep(); const card=el.closest('.ex'); card.classList.add('fin'); flash(card);
+    const s=l.sets[k]; if(!s.done){ s.done=true; s.ts=new Date().toISOString(); saveLog(l); } setTimeout(rerender,1200); } }); }
 
 /* ---------- Afsluiten ---------- */
 function viewFinish(w,l){
@@ -278,7 +306,7 @@ function phasesOf(w){
   } else P.push({name:'Zone 2',sec:(w.duration_min||30)*60,hint:'Praattest / neusademhaling'});
   return P;
 }
-let runT=null;
+let runT=null, itemT=null;
 function viewRun(w){
   const P=phasesOf(w), k='run:'+w.id, total=P.reduce((a,p)=>a+p.sec,0); let st=LS.get(k,null);
   const state=()=>{ if(!st)return {i:0,left:P[0].sec,el:0}; const now=st.pausedAt||Date.now(); const el=(now-st.start-st.pausedTotal)/1000; let acc=0;
