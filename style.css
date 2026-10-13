@@ -89,3 +89,4 @@ details.adv summary{min-height:var(--tap);display:flex;align-items:center;font-w
 .donehead .lg b{font-size:var(--fs-xl);font-weight:800}
 .stats{gap:var(--s2);margin:var(--s3) 0}.stat{padding:var(--s3) var(--s2)}.stat .t72{font-size:30px}
 .chip.part{background:var(--accent);color:var(--on-accent)}.chip.skip{color:var(--danger)}
+.toast{pointer-events:none;transition:opacity .4s}.toast.out{opacity:0}

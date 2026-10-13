@@ -9,7 +9,7 @@ await c.route(/script\.google\.com/,r=>{const q=r.request();const u=new URL(q.ur
   body:JSON.stringify(!tokOk?{ok:false,error:'unauthorized'}:a==='plan'?{ok:true,workouts:[{id:'t1',date:'2026-10-10',type:'rest',title:'Rust'}]}:a==='logs'?{ok:true,logs:[]}:{ok:true})}),800)});
 const p=await c.newPage();const errs=[];if(process.env.DEBUG){p.on('requestfailed',r=>console.log('reqfail',r.url().slice(0,90),(r.failure()||{}).errorText));p.on('console',m=>console.log('console',m.text().slice(0,150)));}p.on('pageerror',e=>errs.push(e.message));
 const st=()=>p.evaluate(()=>({cfg:JSON.parse(localStorage.cfg||'{}'),q:JSON.parse(localStorage.queue||'[]'),tok:document.querySelector('#tok')?.value,ph:document.querySelector('#tok')?.placeholder,sync:document.querySelector('#sync').textContent,sl:localStorage.serverLogsState}));
-await p.goto(U);await p.evaluate(()=>{localStorage.clear();sessionStorage.clear();localStorage['log:x']=JSON.stringify({workout_id:'x',date:'2026-10-10',sets:[],updated_at:'2026-10-10T10:00:00Z'});localStorage.queue='["x"]'});
+await p.goto(U);await p.evaluate(()=>{localStorage.clear();sessionStorage.clear();localStorage['log:x']=JSON.stringify({workout_id:'x',date:'2026-10-10',status:'gedaan',sets:[],updated_at:'2026-10-10T10:00:00Z'});localStorage.queue='["x"]'});
 await p.goto(U+'#instellingen');await p.reload();await p.waitForTimeout(1200);
 const openAdv=()=>p.evaluate(()=>{const d=document.querySelector('details.adv');if(d)d.open=true});await openAdv();
 // 1) invullen, app even naar achtergrond (token kopiëren uit Notities) -> achtergrond-plan-load mag velden niet wissen

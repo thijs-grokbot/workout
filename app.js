@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v12.1', APP_BUILD='6df6ee8+';
+const APP_VERSION='v13', APP_BUILD='0c3cd33+';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -105,16 +105,25 @@ function getLog(w){
   return l;
 }
 const isMain = b => /hoofd/i.test(b.name);
-function saveLog(l,sync=true){ l.updated_at=new Date().toISOString(); LS.set(logKey(l.workout_id),l);
-  if(sync){ const q=new Set(LS.get('queue',[])); q.add(l.workout_id); LS.set('queue',[...q]); flush(); } }
+// Een log telt pas als er echt iets in staat; lege/onaangeraakte logs worden niet bewaard, niet gequeued en niet gesynct.
+const REAL_STATUS=['gedaan','deels','overgeslagen'];
+function isMeaningful(l){ if(!l)return false; if(REAL_STATUS.includes(l.status))return true; if((l.sets||[]).some(s=>s.done))return true;
+  if(l.rpe!=null&&l.rpe!=='')return true; if(String(l.notes||'').trim()||String(l.skipped_reason||'').trim())return true;
+  if(Object.values(l.run||{}).some(v=>v!=null&&v!==''))return true; if(Object.keys(l.feedback||{}).length||l.screenshot||l.amrap_rounds)return true; return false; }
+function logTs(l){ if(!l)return ''; let t=l.updated_at||l.synced_at||l.finished_at||''; if(!t)(l.sets||[]).forEach(s=>{ if(s.ts&&s.ts>t)t=s.ts; }); return String(t); }
+function saveLog(l,sync=true){ l.updated_at=new Date().toISOString(); const q=new Set(LS.get('queue',[]));
+  if(!isMeaningful(l)){ localStorage.removeItem(logKey(l.workout_id)); q.delete(l.workout_id); LS.set('queue',[...q]); syncLabel(); return; }
+  LS.set(logKey(l.workout_id),l);
+  if(sync){ q.add(l.workout_id); LS.set('queue',[...q]); flush(); } }
 /* server-logs ophalen en mergen: per workout_id wint de nieuwste updated_at; lokale niet-gesyncte logs nooit overschreven door ouder */
 let serverLogsState=LS.get('serverLogsState','');
 function mergeServerLogs(arr){
   const q=new Set(LS.get('queue',[])); let n=0;
   (arr||[]).forEach(sl=>{ if(!sl||!sl.workout_id||/TEST/i.test(sl.workout_id)||sl.date==='2000-01-01')return;
-    const loc=LS.get(logKey(sl.workout_id)); const st=String(sl.updated_at||sl.synced_at||''), lt=String((loc&&loc.updated_at)||'');
-    if(loc&&q.has(sl.workout_id)&&lt>=st) return;      // lokaal nieuwer en nog niet gesynct
-    if(loc&&lt>=st) return;                              // lokaal even nieuw of nieuwer
+    const loc=LS.get(logKey(sl.workout_id)), sm=isMeaningful(sl), lm=isMeaningful(loc);
+    if(!sm&&loc) return;                                 // lege server-log verslaat nooit een lokale
+    if(loc&&lm){ if(logTs(loc)>=logTs(sl)) return; }      // beide echt: nieuwste wint
+    // anders (lokaal ontbreekt of is leeg/onaangeraakt): server wint altijd
     const m={...sl}; delete m.screenshot; if(sl.screenshot&&!/^data:/.test(sl.screenshot))m.screenshot_file=sl.screenshot;
     m.feedback=m.feedback||{}; m.sets=m.sets||[]; m.run=m.run||{};
     LS.set(logKey(sl.workout_id),m); if(q.has(sl.workout_id)){ q.delete(sl.workout_id); } n++; });
@@ -137,7 +146,7 @@ async function flush(){
   if(!syncOn()||flushing||!q.length||!navigator.onLine) return;
   flushing=true;
   for(const id of q){
-    const l=LS.get(logKey(id)); if(!l) continue;
+    const l=LS.get(logKey(id)); if(!l||!isMeaningful(l)){ LS.set('queue',LS.get('queue',[]).filter(x=>x!==id)); continue; }
     try{
       const j=await api('POST',null,{action:'log',log:l}); if(!j.ok) throw new Error(j.error||'sync mislukt');
       if((LS.get(logKey(id))||{}).updated_at===l.updated_at) LS.set('queue',LS.get('queue',[]).filter(x=>x!==id));
@@ -196,7 +205,7 @@ function route(){
   if(v==='w')return viewWorkout(byId(arg),tab);
   return viewToday();
 }
-addEventListener('hashchange',()=>{ if(handleMagicLink()){ syncLabel(); toast('Gekoppeld ✓'); loadPlan(); flush().then(loadServerLogs); } route(); scrollTo(0,0); });
+addEventListener('hashchange',()=>{ if(handleMagicLink()){ syncLabel(); toast('Gekoppeld ✓'); loadPlan(); loadServerLogs().then(flush); } route(); scrollTo(0,0); });
 const MAAND=['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'], DAG=['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
 const longDate=ds=>{const d=new Date(ds+'T12:00');return DAG[d.getDay()]+' '+d.getDate()+' '+MAAND[d.getMonth()];};
 const isRun=w=>w.type==='run_z2'||w.type==='run_tempo';
@@ -240,7 +249,7 @@ function doneSummary(w,t){
   const stat=(lbl,val)=>`<div class="card c stat"><div class="eyebrow">${lbl}</div><div class="t72">${val}</div></div>`;
   let h=`<div class="eyebrow">${esc(longDate(t))}${offlineTag()}</div>
    <div class="donehead"><span class="dcheck">✓</span><div><div class="lg"><b>Gedaan</b></div><div class="meta">${esc(w.title)}</div></div></div>
-   <div class="grid3 stats">${stat('RPE',l.rpe!=null?esc(l.rpe):'–')}${run?stat('Duur',ru.duration_min!=null?esc(ru.duration_min)+'′':'–')+stat('Afstand',ru.distance_km!=null?esc(ru.distance_km)+' km':'–')
+   <div class="grid3 stats">${stat('RPE',l.rpe!=null?esc(l.rpe):'–')}${run?stat('Duur',ru.duration_min!=null?Math.round(ru.duration_min)+'′':'–')+stat('Km',ru.distance_km!=null?esc(String(ru.distance_km).replace('.',',')):'–')
      :stat('Rondes',rDone+'/'+R)+stat('Sets',msd.length+'/'+ms.length)}</div>`;
   if(run&&(ru.avg_hr||ru.max_hr)) h+=`<div class="card"><ul class="list"><li><span>Gem. hartslag</span><b>${esc(ru.avg_hr??'–')}</b></li><li><span>Max. hartslag</span><b>${esc(ru.max_hr??'–')}</b></li></ul></div>`;
   const hv=order.filter(e=>heavy[e]);
@@ -393,6 +402,8 @@ function viewProg(){
     (data[s.exercise]??={})[wk]=Math.max(data[s.exercise][wk]||0,+s.load_done); (meta[s.exercise]??=[]).push({d:l.date,v:s.load_done,r:s.reps_done,fb:(l.feedback||{})[s.exercise]}); }));
   const ex=Object.keys(data);
   let h='<div class="eyebrow">Zwaarste afgevinkte gewicht per week</div><h1>Progressie</h1>';
+  const runs=allLogs().filter(l=>isMeaningful(l)&&l.run&&(l.run.distance_km||l.run.duration_min)).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,10);
+  if(runs.length) h+=`<h2>Lopen</h2><div class="card"><ul class="list">${runs.map(l=>{const r=l.run,w=byId(l.workout_id);return `<li><span><b>${l.date.slice(8)}/${+l.date.slice(5,7)}</b> · ${esc(w?w.title:l.workout_id)}</span><span class="meta">${r.distance_km!=null?esc(String(r.distance_km).replace('.',','))+' km':''}${r.duration_min!=null?' · '+Math.round(r.duration_min)+'′':''}${r.avg_hr?' · ♥ '+esc(r.avg_hr):''}</span></li>`}).join('')}</ul></div><h2>Kracht</h2>`;
   if(!ex.length) h+='<div class="card meta">Nog geen afgevinkte sets met gewicht. Na je eerste krachttraining verschijnt hier je progressie.</div>';
   ex.forEach(e=>{ const wks=Object.keys(data[e]).sort().slice(-8), mx=Math.max(...wks.map(k=>data[e][k])), last=meta[e].slice(-3).reverse();
     h+=`<div class="card"><div class="name">${esc(e)}</div><div class="bars">${wks.map((k,i)=>`<div class="${i===wks.length-1?'last':''}" style="height:${Math.max(10,data[e][k]/mx*100)}%"><span>${data[e][k]}</span></div>`).join('')}</div>
@@ -476,7 +487,7 @@ function viewSettings(){
     if(id==='save') return saveSettings(val());
     if(id==='clr'&&confirm('Koppeling wissen? (logs blijven bewaard)')){ localStorage.removeItem('cfg'); location.reload(); }
     if(id==='diag') return diagnose(val());
-    if(id==='refresh'){ e.target.textContent='Bezig…'; await loadPlan(); await flush(); await loadServerLogs(); return viewSettings(); }
+    if(id==='refresh'){ e.target.textContent='Bezig…'; await loadPlan(); await loadServerLogs(); await flush(); return viewSettings(); }
     if(id==='copy'){ const t=app.querySelector('#dout').textContent; try{ await navigator.clipboard.writeText(t); e.target.textContent='✓ Gekopieerd'; }catch(err){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); e.target.textContent='✓ Gekopieerd'; } return; }
     if(id==='test'){ const v=val(); if(!/^https:\/\//.test(v.API_URL)){r.textContent='Vul een https-URL in.';return;} if(!/^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(v.API_URL)){r.textContent='✗ URL moet eindigen op /exec';return;}
       r.textContent='Verbinden… (kan even duren, tot ~1 min)'; e.target.disabled=true; const t0=Date.now();
@@ -494,7 +505,7 @@ function saveSettings(v){
   if(!ok){ if(r)r.textContent='✗ Opslaan mislukt (opslag vol of geblokkeerd?)'; return false; }
   sessionStorage.removeItem('cfgDraft'); syncLabel(); viewSettings();
   const r2=app.querySelector('#res'); if(r2)r2.textContent='✓ Gekoppeld · sync aan · bezig met synchroniseren…';
-  (async()=>{ await flush(); await loadPlan(); await loadServerLogs(); await flush(); if((location.hash||'').includes('instellingen'))viewSettings(); })();
+  (async()=>{ await loadPlan(); await loadServerLogs(); await flush(); if((location.hash||'').includes('instellingen'))viewSettings(); })();
   return true;
 }
 // synchroon opslaan, teruglezen ter controle, CFG direct bijwerken (geen reload nodig)
@@ -548,15 +559,23 @@ function swipe(dir){
 }
 
 /* ---------- versie / updates ---------- */
-function toast(t){ const d=document.createElement('div'); d.className='toast'; d.textContent=t; document.body.appendChild(d); setTimeout(()=>d.remove(),3500); }
-if(sessionStorage.getItem('updated')){ sessionStorage.removeItem('updated'); setTimeout(()=>toast('Bijgewerkt naar '+APP_VERSION),300); }
+// niet-interactieve toast: blokkeert nooit taps, verdwijnt na ~2 s
+function toast(t){ document.querySelectorAll('.toast').forEach(x=>x.remove()); const d=document.createElement('div'); d.className='toast'; d.setAttribute('role','status'); d.textContent=t; document.body.appendChild(d); setTimeout(()=>d.classList.add('out'),1800); setTimeout(()=>d.remove(),2300); }
+// 'Bijgewerkt'-melding hoogstens één keer per versie
+try{ if(localStorage.getItem('toastShownFor')!==APP_VERSION){ const first=!localStorage.getItem('toastShownFor'); localStorage.setItem('toastShownFor',APP_VERSION); if(!first)setTimeout(()=>toast('Bijgewerkt naar '+APP_VERSION),400); } }catch(e){}
+sessionStorage.removeItem('updated');
 
 /* ---------- start ---------- */
 if('serviceWorker' in navigator){
   const hadCtrl=!!navigator.serviceWorker.controller; let reloaded=false;
   navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{ reg.update().catch(()=>{}); document.addEventListener('visibilitychange',()=>{ if(!document.hidden)reg.update().catch(()=>{}); }); }).catch(()=>{});
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!hadCtrl||reloaded)return; reloaded=true; sessionStorage.setItem('updated','1'); location.reload(); });
+  // stil één keer herladen als een nieuwe SW de controle neemt; bewaakt met sessionStorage (max 1x per 30 s) tegen lussen
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!hadCtrl||reloaded)return; const last=+sessionStorage.getItem('swReloadAt')||0;
+    if(Date.now()-last<30000)return; reloaded=true; sessionStorage.setItem('swReloadAt',String(Date.now())); location.reload(); });
 }
-syncLabel(); route(); loadPlan(); flush().then(loadServerLogs);
+// lege lokale logs van oudere versies opruimen
+Object.keys(localStorage).filter(k=>k.startsWith('log:')).forEach(k=>{ if(!isMeaningful(LS.get(k)))localStorage.removeItem(k); });
+LS.set('queue',LS.get('queue',[]).filter(id=>isMeaningful(LS.get(logKey(id)))));
+syncLabel(); route(); loadPlan(); loadServerLogs().then(flush);
 if(justLinked) setTimeout(()=>toast('Gekoppeld ✓'),300);
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ loadPlan(); flush().then(loadServerLogs); } });
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ loadPlan(); loadServerLogs().then(flush); } });
