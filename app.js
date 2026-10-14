@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v14', APP_BUILD='volgas';
+const APP_VERSION='v14.1', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -194,7 +194,8 @@ let R=LS.get('rest',null), restT=null; // {end,dur,next,label}
 function openTimer(){ ov.style.display='block'; drawTimer(); clearInterval(restT); restT=setInterval(drawTimer,250); }
 function closeTimer(){ ov.style.display='none'; ov.className='rest'; clearInterval(restT); }
 function startRest(sec,next,label){ unlockAudio(); wake(); R={end:Date.now()+sec*1000,dur:sec,plan:sec,next:next??(R&&R.next)??'',label:label??(R&&R.label)??''}; LS.set('rest',R); ov.classList.remove('fin'); openTimer(); }
-function stopRest(){ R=null; LS.set('rest',null); closeTimer(); }
+function restBackTo(h){ if(R){ R.backTo=h; LS.set('rest',R); } }
+function stopRest(){ const back=R&&R.backTo; R=null; LS.set('rest',null); closeTimer(); if(back&&location.hash!==back) location.replace(back); }
 function drawTimer(){ if(!R)return closeTimer();
   const left=Math.max(0,(R.end-Date.now())/1000), done=left<=0;
   if(done&&!ov.classList.contains('fin')){ ov.classList.add('fin'); if(!R.signaled){R.signaled=true;LS.set('rest',R);beep();} flash(ov); }
@@ -330,6 +331,7 @@ function viewWorkout(w,tab){
   const sets=cur?cur.block.items.map(it=>({it,k:l.sets.findIndex(s=>s.block===cur.block.name&&s.exercise===it.exercise&&s.round===cur.round)})).filter(x=>x.k>=0):[];
   const firstOpen=sets.find(x=>!l.sets[x.k].done);
   let h=w.amrap_min&&main?amrapCard(w,l):'';
+  const nr=LS.get('nextRound',null); if(nr&&nr.id===w.id&&cur&&cur.key===nr.fromKey&&!firstOpen){ h+=`<div class="card hero" style="text-align:center"><div class="lbl">${esc(nr.from)} klaar</div><div class="big" style="font-size:40px;margin:8px 0">Verder met ${esc(nr.label)}</div><button class="btn" id="gonext">▶ Verder met ${esc(nr.label)}</button></div>`; }
   h+='<div class="card exs">';
   sets.forEach(({it,k})=>{ const s=l.sets[k]; const hasLoad=it.load_range||it.load_default!=null; const def=itemDur(it);
     const unit=it.load_unit||'kg', u2=unit.replace(/\s*kg$/,'').trim();
@@ -356,12 +358,14 @@ function viewWorkout(w,tab){
   setBar(`<button class="btn" id="next">${label}</button>`);
   const check=k=>{ const s=l.sets[k]; s.done=!s.done; s.ts=new Date().toISOString(); if(!l.started_at)l.started_at=s.ts; saveLog(l);
     if(s.done){ const allDone=l.sets.filter(x=>x.block===s.block&&x.round===s.round).every(x=>x.done);
-      if(allDone&&main&&w.rest_sec&&ti<T.length-1){ startRest(w.rest_sec,nextName(),w.title+' · na '+cur.label.toLowerCase()); return go(T[ti+1].key); } }
+      if(allDone&&main&&ti<T.length-1){ startRest(restS,nextName(),w.title+' · na '+cur.label.toLowerCase()); restBackTo('#w/'+w.id+'/'+T[ti+1].key); return; }
+      if(allDone&&!main){ const n=T[ti+1]||{key:'klaar',label:'Afsluiten'}; LS.set('nextRound',{id:w.id,key:n.key,label:n.label,from:cur.label,fromKey:cur.key}); return viewWorkout(w,cur.key); } }
     viewWorkout(w,cur.key); };
   app.querySelector('#rest').onclick=()=>startRest(restS,firstOpen?firstOpen.it.exercise:nextName(),w.title);
+  const gn=app.querySelector('#gonext'); if(gn) gn.onclick=()=>{ const x=LS.get('nextRound',null); LS.set('nextRound',null); go(x&&x.key||T[ti+1].key); };
   bar.querySelector('#next').onclick=()=>{ LS.set('training',1); wake();
     if(main){ const now=new Date().toISOString(); sets.forEach(({k})=>{ if(!l.sets[k].done){l.sets[k].done=true;l.sets[k].ts=now;} }); if(!l.started_at)l.started_at=now; saveLog(l);
-      if(!last){ startRest(restS,nextName(),w.title+' · na '+cur.label.toLowerCase()); return go(T[ti+1].key); } return location.hash='#w/'+w.id+'/klaar'; }
+      if(!last){ startRest(restS,nextName(),w.title+' · na '+cur.label.toLowerCase()); restBackTo('#w/'+w.id+'/'+T[ti+1].key); return; } return location.hash='#w/'+w.id+'/klaar'; }
     if(!last)return go(T[ti+1].key); location.hash='#w/'+w.id+'/klaar'; };
   app.onclick=e=>{ const b=e.target.closest('button,[data-chk],[data-del]'); if(!b)return; const d=b.dataset;
     if(d.del!=null){ const exEl=b.closest('.ex'); if(exEl&&exEl.classList.contains('swiping')) return deleteExercise(w,d.del); return; }
