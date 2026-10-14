@@ -26,7 +26,7 @@ header{position:sticky;top:0;z-index:8;background:rgba(13,13,15,.96);padding-top
 .back{width:56px;height:56px;border-radius:var(--r);background:var(--card2);font-size:26px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none}
 .tt{flex:1;min-width:0}.tt .h{font-size:22px;line-height:1.1;display:block}
 .tabs{display:flex;gap:6px;padding:0 20px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
-.tabs a,.tabs button{flex:1;text-align:center;height:56px;line-height:56px;font-weight:600;color:var(--mu);position:relative;white-space:nowrap;min-width:84px;font-size:16px}
+.tabs a,.tabs button{flex:1;text-align:center;height:56px;line-height:56px;font-weight:600;color:var(--mu);position:relative;white-space:nowrap;min-width:72px;font-size:15px}
 .tabs .on{color:var(--ac)}.tabs .on:after{content:"";position:absolute;left:18%;right:18%;bottom:-1px;height:3px;border-radius:3px;background:var(--ac)}
 .dots{display:flex;justify-content:center;gap:6px;padding:8px 0 0}.dots span{width:6px;height:6px;border-radius:3px;background:var(--line)}.dots .on{width:18px;background:var(--ac)}
 main{padding:12px 20px;max-width:640px;margin:auto}
@@ -65,7 +65,7 @@ h1{font-size:40px;line-height:1;margin:6px 0 12px}h2{font:700 12px var(--font);t
 .day{background:var(--card);border:1px solid var(--line);border-radius:var(--r);height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:13px;color:var(--mu)}
 .day b{font-size:17px;color:var(--tx)}.day.today{border:2px solid var(--ac)}.day .d{width:8px;height:8px;border-radius:4px;background:var(--line)}
 .d.g{background:var(--ok)!important}.d.p{background:var(--ac)!important}.d.x{background:var(--red)!important}
-.wl{display:flex;align-items:center;gap:12px;min-height:72px;padding:10px 16px;margin:8px 0}.wl .dn{width:44px;font:800 20px var(--cond);text-transform:uppercase;color:var(--mu)}.wl.today{border:2px solid var(--ac)}
+.wl{display:flex;align-items:center;gap:12px;min-height:54px;padding:6px 16px;margin:6px 0}.wl .dn{width:44px;font:800 20px var(--cond);text-transform:uppercase;color:var(--mu)}.wl.today{border:2px solid var(--ac)}
 .st{font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--card2);white-space:nowrap;color:var(--mu)}.st.ok{background:#0F3322;color:#5BE39B}.st.part{background:#3A2A0E;color:#FFC266}.st.skip{background:#3A1418;color:#FF8A8A}
 .seg3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 /* oefenrijen */
@@ -85,7 +85,14 @@ h1{font-size:40px;line-height:1;margin:6px 0 12px}h2{font:700 12px var(--font);t
 .tim .play{width:56px;height:56px;flex:none;border-radius:var(--r);background:var(--ac);color:var(--on);font-size:22px;font-weight:800}
 .tim .play.pause{background:var(--card2);color:var(--tx)}
 .tim .clock{font:800 30px var(--cond);color:var(--ac);font-variant-numeric:tabular-nums;min-width:64px;text-align:right;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-.tim .rs{width:44px;height:56px;color:var(--mu);font-size:20px}
+.tim .rs{width:44px;height:56px;flex:none;color:var(--mu);font-size:20px}
+.tim .sp,.exr .sp{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}.tim .clock{flex:none;white-space:nowrap;line-height:1}
+.minirest{position:fixed;left:20px;right:20px;bottom:calc(var(--sab) + 104px);z-index:12;display:none;align-items:center;gap:12px;height:56px;padding:0 16px;border-radius:var(--r);background:var(--card2);border:1.5px solid var(--ac);color:var(--tx);overflow:hidden;max-width:600px;margin:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.minirest .ml{font:700 12px var(--font);text-transform:uppercase;letter-spacing:.08em;color:var(--mu)}.minirest b{font:800 28px var(--cond);color:var(--ac);font-variant-numeric:tabular-nums}
+.minirest .mn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;font-size:14px;color:var(--mu)}
+.minirest i{position:absolute;left:0;bottom:0;height:3px;background:var(--ac)}
+body:not(.hasfoot) .minirest{bottom:calc(var(--sab) + 20px)}
+body:has(.minirest[style*="flex"]) .fab,body:has(.minirest[style*="flex"]) .vbar{bottom:calc(var(--sab) + 172px)}
 .ring{height:8px;background:var(--card2);border-radius:5px;overflow:hidden}.ring i{display:block;height:100%;background:var(--ac);border-radius:5px}
 .ex.fin{background:var(--ac);color:var(--on)}.ex.fin .sub,.ex.fin .clock{color:var(--on)}
 .ex .x{position:absolute;right:-16px;top:0;bottom:0;width:96px;background:var(--red);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:28px;font-weight:800;opacity:0}
@@ -159,3 +166,19 @@ details summary{min-height:56px;display:flex;align-items:center;font-weight:700;
 .utoast button{height:48px;padding:0 16px;color:var(--ac);font-weight:800}
 .ver{text-align:center;margin-top:16px;font-size:12px;color:var(--mu)}
 @media (prefers-reduced-motion:reduce){.t-inferno,.pulse,.flash,.confetti{animation:none}}
+.rest .restpop,.rest.fin .restpop{color:var(--tx);border-radius:var(--r);border:1.5px solid var(--ac);top:24%}.rest.fin .restpop .mu{color:var(--mu)}
+.rest.fin .restpop .btn{background:var(--ac);color:var(--on)}
+body:has(.minirest[style*="flex"]) #app{padding-bottom:84px}
+
+/* v14.2 clean */
+.streak .shl{display:flex;align-items:center;gap:10px}.streak .shl .nt{margin-left:0}
+.wkhd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:8px}.wkhd h1{margin:0}
+.seg3.sm button{height:44px}
+.chain{display:flex;align-items:center;margin:14px 0 10px;padding:0 4px}
+.chain .lk{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;font-size:12px;color:var(--mu);font-weight:600}
+.chain .lk i{width:26px;height:16px;border-radius:9px;border:3px solid var(--line);background:transparent;position:relative;z-index:1}
+.chain .lk:not(:last-child):after{content:"";position:absolute;top:7px;left:calc(50% + 13px);right:calc(-50% + 13px);height:3px;background:var(--line)}
+.chain .lk.ok i,.chain .lk.rest i{border-color:var(--ac)}.chain .lk.ok i{background:var(--ac)}
+.chain .lk.ok:not(:last-child):after,.chain .lk.rest:not(:last-child):after{background:var(--ac)}
+.chain .lk.part i{border-color:#FFC266}.chain .lk.brk i{border-color:var(--red);border-style:dashed}
+.chain .lk.today span{color:var(--ac)}.chain .lk.today i{box-shadow:0 0 0 3px rgba(255,107,26,.25)}

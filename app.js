@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v14.1', APP_BUILD='volgas';
+const APP_VERSION='v14.2', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -104,13 +104,17 @@ const logKey = id => 'log:'+id;
 function getLog(w){
   let l=LS.get(logKey(w.id));
   if(!l){ l={workout_id:w.id,date:w.date,profile_id:(LS.get('profile',{}).id||'thijs'),status:'',sets:[],rpe:null,feedback:{},run:{},notes:'',skipped_reason:''}; }
-  // zorg dat alle sets bestaan
+  // zorg dat alle sets bestaan — maar NOOIT in een afgeronde/bestaande log (bv. van Mike) sets bijmaken
+  if(REAL_STATUS.includes(l.status)) return l;
   (w.blocks||[]).forEach((b,bi)=>{ const R=isMain(b)?(w.rounds||1):1;
-    b.items.forEach((it,ii)=>{ for(let r=1;r<=R;r++){ if(!l.sets.find(s=>s.block===b.name&&s.exercise===it.exercise&&s.round===r))
+    b.items.forEach((it,ii)=>{ for(let r=1;r<=R;r++){ if(!l.sets.find(s=>s.block===b.name&&sameEx(s.exercise,it.exercise)&&s.round===r))
       l.sets.push({round:r,block:b.name,exercise:it.exercise,reps_done:it.reps??'',load_done:it.load_default??(it.load_range?it.load_range[0]:null),load_unit:it.load_unit||'',done:false}); }});});
   return l;
 }
 const isMain = b => /hoofd/i.test(b.name);
+// 'Roeien of fietsen' == 'Roeien/fietsen' == 'roeien - fietsen'
+const exKey = x => String(x||'').toLowerCase().replace(/\s+of\s+/g,'/').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
+const sameEx = (a,b) => a===b||exKey(a)===exKey(b);
 // Een log telt pas als er echt iets in staat; lege/onaangeraakte logs worden niet bewaard, niet gequeued en niet gesynct.
 const REAL_STATUS=['gedaan','deels','overgeslagen'];
 function isMeaningful(l){ if(!l)return false; if(REAL_STATUS.includes(l.status))return true; if((l.sets||[]).some(s=>s.done))return true;
@@ -183,32 +187,40 @@ const PROFILE=()=>Object.assign({id:'thijs',name:'Thijs Hogeveen'},LS.get('profi
 const TRAINER=()=>PROFILE().trainer_name||LS.get('trainerFromPing','')||CFG.TRAINER_NAME||'Mike';
 const initials=n=>String(n||'?').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join('');
 const avatar=()=>`<button class="av" id="avbtn" aria-label="Profiel en instellingen">${esc(initials(PROFILE().name))}<i class="${syncOn()?'on':''}"></i></button>`;
-function appHead(active){ const T=[['vandaag','Vandaag'],['week','Week'],['progressie','Progressie']];
+function appHead(active){ const T=[['vandaag','Vandaag'],['morgen','Morgen'],['week','Week'],['progressie','Progressie']];
   hd.innerHTML=`<div class="top">${BRAND}${avatar()}</div><nav class="tabs">${T.map(([k,l])=>`<a href="#${k}" class="${k===active?'on':''}">${l}</a>`).join('')}</nav>
   <div class="dots">${T.map(([k])=>`<span class="${k===active?'on':''}"></span>`).join('')}</div>`; }
 function subHead(lbl,title,back='#vandaag'){ hd.innerHTML=`<div class="top"><a class="back" href="${back}" aria-label="Terug">‹</a><div class="tt"><div class="lbl">${esc(lbl)}</div><b class="h">${esc(title)}</b></div>${avatar()}</div>`; }
 hd.addEventListener('click',e=>{ if(e.target.closest('#avbtn')) openProfile(); });
 
 /* ---------- rust (één blok, tijdstempels) ---------- */
-let R=LS.get('rest',null), restT=null; // {end,dur,next,label}
-function openTimer(){ ov.style.display='block'; drawTimer(); clearInterval(restT); restT=setInterval(drawTimer,250); }
-function closeTimer(){ ov.style.display='none'; ov.className='rest'; clearInterval(restT); }
-function startRest(sec,next,label){ unlockAudio(); wake(); R={end:Date.now()+sec*1000,dur:sec,plan:sec,next:next??(R&&R.next)??'',label:label??(R&&R.label)??''}; LS.set('rest',R); ov.classList.remove('fin'); openTimer(); }
+let R=LS.get('rest',null), restT=null; // {end,dur,next,label,backTo,min}
+const mini=document.createElement('button'); mini.id='minirest'; mini.className='minirest'; mini.setAttribute('aria-label','Rust openen'); document.body.appendChild(mini);
+mini.onclick=()=>{ if(!R)return; R.min=false; LS.set('rest',R); openTimer(); };
+function openTimer(){ drawTimer(); clearInterval(restT); restT=setInterval(drawTimer,250); }
+function closeTimer(){ ov.style.display='none'; ov.className='rest'; ov.innerHTML=''; clearInterval(restT); mini.style.display='none'; }
+function startRest(sec,next,label){ unlockAudio(); wake(); R={end:Date.now()+sec*1000,dur:sec,plan:sec,next:next??(R&&R.next)??'',label:label??(R&&R.label)??'',min:false}; LS.set('rest',R); ov.classList.remove('fin'); openTimer(); }
 function restBackTo(h){ if(R){ R.backTo=h; LS.set('rest',R); } }
 function stopRest(){ const back=R&&R.backTo; R=null; LS.set('rest',null); closeTimer(); if(back&&location.hash!==back) location.replace(back); }
-function drawTimer(){ if(!R)return closeTimer();
+const restQ=()=>/^ronde/i.test(R.next||'')?'Klaar voor de volgende ronde?':/cool/i.test(R.next||'')?'Klaar voor de cooling-down?':'Klaar om verder te gaan?';
+function drawTimer(){ const saved=LS.get('rest',null); if(saved)R=saved; if(!R)return closeTimer();
   const left=Math.max(0,(R.end-Date.now())/1000), done=left<=0;
-  if(done&&!ov.classList.contains('fin')){ ov.classList.add('fin'); if(!R.signaled){R.signaled=true;LS.set('rest',R);beep();} flash(ov); }
+  if(done&&!R.signaled){ R.signaled=true; R.min=false; LS.set('rest',R); beep(); flash(ov); }
+  // mini-balk onderin als de rust is weggeklikt
+  if(R.min){ ov.style.display='none'; mini.style.display='flex'; mini.innerHTML=`<span class="ml">Rust</span><b>${fmt(Math.ceil(left))}</b><span class="mn">${esc(R.next||'')}</span><i style="width:${Math.min(100,100*(1-left/R.dur))}%"></i>`; return; }
+  mini.style.display='none'; ov.style.display='block'; ov.classList.toggle('fin',done);
   const pct=Math.min(100,100*(1-left/R.dur));
-  ov.innerHTML=`<div style="padding-top:var(--sat)"><div class="top"><button class="back" data-t="stop" aria-label="Sluiten">‹</button><div class="tt"><div class="lbl">${esc(R.label||'Rust')}</div><b class="h">${done?'Rust voorbij':'Rust'}</b></div></div></div>
+  ov.innerHTML=`<div style="padding-top:var(--sat)"><div class="top"><button class="back" data-t="min" aria-label="Rust verkleinen">‹</button><div class="tt"><div class="lbl">${esc(R.label||'Rust')}</div><b class="h">${done?'Rust voorbij':'Rust'}</b></div></div></div>
    <main><div class="card" style="padding:22px 16px"><div class="lbl" style="text-align:center">Rust volgens ${esc(TRAINER())}'s plan · ${fmt(R.plan||R.dur)}</div>
    <div class="big3">${done?'GO!':fmt(Math.ceil(left))}</div><div class="ring" style="margin:6px 6px 18px"><i style="width:${pct}%"></i></div>
    <div class="adj">${[-30,-15,15,30].map(s=>`<button data-t="${s}">${s<0?'−':'+'}${Math.abs(s)}</button>`).join('')}</div></div>
    ${R.next?`<h2>Straks</h2><div class="card"><b style="font-size:18px">${esc(R.next)}</b></div>`:''}</main>
-   <div class="foot" style="position:fixed"><button class="btn${done?' ghost':''}" data-t="stop" style="${done?'background:var(--on);color:#fff':''}">${done?'Verder':'Klaar met rust'}</button></div>`; }
+   <div class="foot" style="position:fixed"><button class="btn" data-t="stop" id="skiprest">Skip rust · ${esc(/^ronde/i.test(R.next||'')?'volgende ronde':'verder')} →</button></div>
+   ${done?`<div class="scrim" style="z-index:21"></div><div class="pop restpop" role="dialog" style="z-index:22"><b class="h" style="font-size:26px;display:block;margin-bottom:6px">${restQ()}</b><div class="mu" style="margin-bottom:16px">${esc(R.next||'')}</div><button class="btn" data-t="stop" id="akkoord">Akkoord</button></div>`:''}`; }
 ov.addEventListener('click',e=>{ const b=e.target.closest('[data-t]'); if(!b||!R)return; const t=b.dataset.t;
   if(t==='stop')return stopRest();
-  const d=+t; R.end=Math.max(Date.now(),R.end+d*1000); R.dur=Math.max(1,R.dur+d); R.signaled=R.end>Date.now()?false:R.signaled; ov.classList.toggle('fin',R.end<=Date.now()); LS.set('rest',R); drawTimer(); });
+  if(t==='min'){ R.min=true; LS.set('rest',R); return drawTimer(); }
+  const d=+t; R.end=Math.max(Date.now(),R.end+d*1000); R.dur=Math.max(1,R.dur+d); R.signaled=R.end>Date.now()?false:R.signaled; LS.set('rest',R); drawTimer(); });
 if(R) openTimer();
 
 /* ---------- streak (reeks) ---------- */
@@ -223,7 +235,7 @@ function streak(){ const logs=allLogs().filter(isMeaningful); if(!logs.length)re
     if(ds===t)continue; n=0; }
   return n; }
 function streakCard(){ const n=streak(), T=tierOf(n);
-  return `<a class="card streak ${T[4]}" href="#reeks"><span class="em">${T[3]}</span><div class="sp"><b class="h">${n} ${n===1?'dag':'dagen'}</b><span class="nt">${T[0].toUpperCase()}</span><div class="mu" style="font-size:13px">Rustdagen tellen mee</div></div><span class="mu" style="font-size:22px">›</span></a>`; }
+  return `<a class="card streak ${T[4]}" href="#reeks"><span class="em">${T[3]}</span><span class="sp shl"><b class="h">${n} ${n===1?'dag':'dagen'}</b><span class="nt">${T[0].toUpperCase()}</span></span><span class="mu" style="font-size:22px">›</span></a>`; }
 function viewStreak(){ const n=streak(), cur=tierOf(n); subHead(n+' '+(n===1?'dag':'dagen')+' op schema','Je reeks');
   app.innerHTML=`
   ${TIERS.map(T=>`<div class="card tier ${T[4]} ${T===cur?'cur':''}"><span class="em">${T[3]}</span><div class="sp"><b class="h">${T[0]}</b><div class="mu" style="font-size:15px">${T[2]>1e6?T[1]+'+ dagen':T[1]+'–'+T[2]+' dagen'}</div></div>${T===cur?`<span class="n">${n}</span>`:''}</div>`).join('')}
@@ -243,6 +255,7 @@ function route(){
   if(v!=='aftrap'&&!LS.get('aftrapDone',0)&&!/instellingen/.test(v)){ location.replace('#aftrap/0'); return; }
   if(v==='aftrap')return viewAftrap(arg||'0');
   if(v==='instellingen'){ viewSettings(); return Voice.after(v); }
+  if(v==='morgen'){ viewMorgen(); return Voice.after(v); }
   if(v==='week'){ viewWeek(); return Voice.after(v); }
   if(v==='progressie'){ viewProg(arg); return Voice.after(v); }
   if(v==='reeks'){ viewStreak(); return Voice.after(v); }
@@ -264,16 +277,23 @@ const offlineTag=()=>navigator.onLine?'':' · offline';
 addEventListener('offline',()=>softRoute()); addEventListener('online',()=>softRoute());
 function dayDot(ds){ const ws=PLAN.filter(w=>w.date===ds); if(!ws.length)return ''; const s=ws.map(statusOf);
   if(s.some(x=>x==='gedaan'))return 'g'; if(s.some(x=>x==='deels'||x==='bezig'))return 'p'; if(s.some(x=>x==='overgeslagen'))return 'x'; return ds===today()?'p':''; }
+// streak-ketting: één schakel per dag (Ma–Zo); tik = workout van die dag
+function chainStrip(t,ref){ const wk=weekOf(t), td=ref||today();
+  return `<div class="chain" aria-label="Reeks deze week">${wk.map((ds,i)=>{ const ws=PLAN.filter(x=>x.date===ds), w=ws.find(x=>x.type!=='rest')||ws[0], d=dayDot(ds), train=ws.some(x=>x.type!=='rest');
+    const c=d==='g'?'ok':d==='x'?'brk':(!train&&ds<td)?'rest':(train&&ds<td&&d!=='p')?'brk':d==='p'&&ds<=td?'part':'';
+    return `<a class="lk ${c} ${ds===td?'today':''}" href="${w?'#w/'+esc(w.id):'#week'}"><i></i><span>${cap(DAYS[i]).slice(0,2)}</span></a>`; }).join('')}</div>`; }
 function weekStrip(t){ const wk=weekOf(t); return `<div class="week">${wk.map((ds,i)=>{ const w=PLAN.find(x=>x.date===ds);
   return `<a class="day ${ds===t?'today':''}" href="${w?'#w/'+esc(w.id):'#week'}">${cap(DAYS[i])}<b>${+ds.slice(8)}</b><span class="d ${dayDot(ds)}"></span></a>`; }).join('')}</div>`; }
 const wkNo=ds=>+isoWeek(ds).split('-W')[1];
 function heroCard(w,ey){ const d=durOf(w), n=(w.blocks||[]).filter(isMain).reduce((a,b)=>a+b.items.length,0), st=statusOf(w);
   const big=isRun(w)?(w.type==='run_tempo'&&w.intervals?`${w.intervals.reps}×${w.intervals.work_min||''} min<br>tempo`:`${d||''} min<br>Zone 2`):w.type==='rest'?'Rustdag':`${w.rounds>1?w.rounds+' rondes':'1 ronde'}<br>${n} oefeningen`;
   return `<div class="card hero"><div class="lbl">${esc(w.title)}</div><div class="big" style="margin-top:6px">${big}</div>
-   <div class="chips">${st==='deels'?'<span class="chip">Deels gedaan</span>':''}${st==='overgeslagen'?'<span class="chip">Overgeslagen</span>':''}${d?`<span class="chip">± ${d} min</span>`:''}${w.rest_sec?`<span class="chip">Rust ${fmt(w.rest_sec)}</span>`:''}${w.hr_target?`<span class="chip">HR ${esc(w.hr_target)}</span>`:''}<span class="chip">${isRun(w)?'Lopen':esc(TYPES[w.type]||w.type)}</span></div>
+   <div class="chips">${st==='deels'?'<span class="chip">Deels gedaan</span>':''}${st==='overgeslagen'?'<span class="chip">Overgeslagen</span>':''}${d?`<span class="chip">± ${d} min</span>`:''}${w.rest_sec?`<span class="chip">Rust ${fmt(w.rest_sec)}</span>`:''}${w.hr_target?`<span class="chip">HR ${esc(w.hr_target)}</span>`:''}</div>
    <a class="btn" href="#w/${esc(w.id)}" id="start">${st?'▶ Verder met training':'▶ Start training'}</a></div>`; }
-function morgenCard(n,t){ const tm=new Date(t+'T12:00'); tm.setDate(tm.getDate()+1); const d=durOf(n);
-  return `<h2>${n.date===ymd(tm)?'Morgen':'Volgende · '+esc(longDate(n.date))}</h2><a class="card morgen row" href="#w/${esc(n.id)}"><span class="ic">${isRun(n)?'🏃':n.type==='rest'?'🛌':'🏋️'}</span><span class="sp"><b style="font-size:18px">${esc(n.title)}</b><div class="mu" style="font-size:14px">${esc(cap(longDate(n.date).split(' ')[0]))}${d?' · ± '+d+' min':''}${n.rounds>1?' · '+n.rounds+' rondes':''}${n.hr_target?' · HR '+esc(n.hr_target):''}</div></span></a>`; }
+const tomorrow=()=>{ const d=new Date(today()+'T12:00'); d.setDate(d.getDate()+1); return ymd(d); };
+// Korte deep-link naar de Morgen-tab (geen volle kaart meer onder Vandaag)
+function morgenLink(n){ if(!n)return ''; const d=durOf(n), tom=n.date===tomorrow();
+  return `<a class="card morgen row" href="#morgen" style="margin-top:12px"><span class="ic">${isRun(n)?'🏃':n.type==='rest'?'🛌':'🏋️'}</span><span class="sp"><b style="font-size:18px">${tom?'Morgen':'Volgende'}</b><div class="mu" style="font-size:14px">${esc(n.title)}${d?' · ± '+d+' min':''}</div></span><span class="mu" style="font-size:22px">›</span></a>`; }
 
 /* ---------- Vandaag ---------- */
 function viewToday(){
@@ -287,10 +307,28 @@ function viewToday(){
   else if(w.date===t&&statusOf(w)==='gedaan') h+=summaryBody(w,true);
   else { h+=heroCard(w,ey); if((w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
     if(todays.length>1) h+='<h2>Ook vandaag</h2>'+todays.slice(1).map(x=>`<a class="card wl" href="#w/${esc(x.id)}"><span class="sp"><b>${esc(x.title)}</b></span>${stBadge(x)}</a>`).join(''); }
-  h+=`<h2>Deze week</h2>${weekStrip(t)}`;
+  if(!(w&&w.date===t&&statusOf(w)==='gedaan')) h+=morgenLink(PLAN.find(x=>x.date>t));
   const lastAdj=Object.values(LS.get('overrides',{})).filter(o=>o.workout.date>=t).sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0];
   h+=mikeline(lastAdj?esc(TRAINER())+' heeft je training aangepast op jouw wens':esc(TRAINER())+' kijkt mee en zet je trainingen klaar');
-  app.innerHTML=h+`<div class="ver">${VLABEL}</div>`;
+  app.innerHTML=h+`<h2>Reeks</h2>${chainStrip(t)}<div class="ver">${VLABEL}</div>`;
+  const st=app.querySelector('#start'); if(st) st.onclick=()=>{unlockAudio();LS.set('training',1);wake();};
+}
+/* ---------- Morgen ---------- */
+function viewMorgen(){
+  appHead('morgen'); const t=tomorrow();
+  const unl=!syncOn()?`<a class="card row" href="#instellingen" style="border:2px solid var(--ac)"><span class="sp"><b>Niet gekoppeld</b><div class="mu" style="font-size:14px">Tik om te koppelen met ${esc(TRAINER())}</div></span><span class="chip part">Koppel</span></a>`:'';
+  if(!PLAN.length){ app.innerHTML=unl+`<div class="lbl">${esc(longDate(t))}</div><h1>Nog geen plan</h1>`; return; }
+  const tomorrows=PLAN.filter(w=>w.date===t); let w=tomorrows[0];
+  let h=unl+`<div class="lbl" style="margin-bottom:10px">${esc(cap(longDate(t)))} · week ${wkNo(t)}${offlineTag()}</div>`;
+  if(!w){ const next=PLAN.find(x=>x.date>t);
+    h+=`<h1>Niets gepland</h1><p class="mu" style="margin-bottom:16px">Er staat morgen niets in je schema.</p>`;
+    if(next) h+=morgenLink(next);
+  } else {
+    h+=heroCard(w,longDate(t));
+    if((w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
+    if(tomorrows.length>1) h+='<h2>Ook morgen</h2>'+tomorrows.slice(1).map(x=>`<a class="card wl" href="#w/${esc(x.id)}"><span class="sp"><b>${esc(x.title)}</b></span>${stBadge(x)}</a>`).join('');
+  }
+  app.innerHTML=h;
   const st=app.querySelector('#start'); if(st) st.onclick=()=>{unlockAudio();LS.set('training',1);wake();};
 }
 function summaryBody(w,onToday){
@@ -307,7 +345,7 @@ function summaryBody(w,onToday){
   if(run&&ru.max_hr) h+=`<div class="card exs"><div class="li" style="min-height:52px"><span class="sp">Max. hartslag</span><b>${esc(ru.max_hr)}</b></div></div>`;
   if(l.notes) h+=`<div class="note">${esc(l.notes)}</div>`;
   if(onToday) h+=`<a class="btn ghost sm" href="#w/${esc(w.id)}">Workout bekijken</a>`;
-  const n=PLAN.find(x=>x.date>w.date); if(n) h+=morgenCard(n,w.date)+mikeline(esc(TRAINER())+' heeft je volgende training klaargezet');
+  const n=PLAN.find(x=>x.date>w.date); if(n) h+=morgenLink(n);
   return h; }
 
 /* ---------- Workout (kracht / thuis / rust) ---------- */
@@ -328,7 +366,7 @@ function viewWorkout(w,tab){
   const main=cur&&isMain(cur.block), R=w.rounds||1;
   subHead(w.title, cur?(main&&R>1?'Ronde '+cur.round+' van '+R:cur.label):w.title);
   if(T.length>1) hd.insertAdjacentHTML('beforeend',`<div class="tabs" data-noswipe>${T.map((t,i)=>`<button class="${i===ti?'on':''}" data-tab="${t.key}">${esc(t.label)}</button>`).join('')}</div>`);
-  const sets=cur?cur.block.items.map(it=>({it,k:l.sets.findIndex(s=>s.block===cur.block.name&&s.exercise===it.exercise&&s.round===cur.round)})).filter(x=>x.k>=0):[];
+  const sets=cur?cur.block.items.map(it=>({it,k:l.sets.findIndex(s=>s.block===cur.block.name&&sameEx(s.exercise,it.exercise)&&s.round===cur.round)})).filter(x=>x.k>=0):[];
   const firstOpen=sets.find(x=>!l.sets[x.k].done);
   let h=w.amrap_min&&main?amrapCard(w,l):'';
   const nr=LS.get('nextRound',null); if(nr&&nr.id===w.id&&cur&&cur.key===nr.fromKey&&!firstOpen){ h+=`<div class="card hero" style="text-align:center"><div class="lbl">${esc(nr.from)} klaar</div><div class="big" style="font-size:40px;margin:8px 0">Verder met ${esc(nr.label)}</div><button class="btn" id="gonext">▶ Verder met ${esc(nr.label)}</button></div>`; }
@@ -336,7 +374,7 @@ function viewWorkout(w,tab){
   sets.forEach(({it,k})=>{ const s=l.sets[k]; const hasLoad=it.load_range||it.load_default!=null; const def=itemDur(it);
     const unit=it.load_unit||'kg', u2=unit.replace(/\s*kg$/,'').trim();
     const loadTxt=hasLoad?((u2?u2+'':'')+(s.load_done!=null?s.load_done:'')+' kg'):'';
-    const sub=def?'Tijd-item · tik op ▶ om te starten':[it.reps?(main&&s.reps_done?s.reps_done:it.reps)+(/^\d+$/.test(String(main&&s.reps_done?s.reps_done:it.reps))?' reps':''):'',loadTxt||(it.load_range?it.load_range.join('–')+' kg':'')].filter(Boolean).join(' · ');
+    const sub=def?(LS.get(itKey(w,k))&&LS.get(itKey(w,k)).start?'Tijd-item · loopt':'Tik ▶ om te starten'):[it.reps?(main&&s.reps_done?s.reps_done:it.reps)+(/^\d+$/.test(String(main&&s.reps_done?s.reps_done:it.reps))?' reps':''):'',loadTxt||(it.load_range?it.load_range.join('–')+' kg':'')].filter(Boolean).join(' · ');
     h+=`<div class="ex ${s.done?'done':''} ${firstOpen&&firstOpen.k===k?'active':''}" data-ex="${esc(it.exercise)}" data-k="${k}"><div class="x" data-del="${esc(it.exercise)}">✕<small>Verwijder</small></div><div class="mv">`;
     if(def&&!s.done){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false};
       h+=`<div class="tim itimer" data-it="${k}"><button class="play ${x.run?'pause':''}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button><div class="sp" data-chk="${k}"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(sub)}</div></div>
@@ -349,8 +387,7 @@ function viewWorkout(w,tab){
   h+='</div>';
   if(sets.length) h+='<div class="hint">⟵ Swipe naar links om te verwijderen</div>';
   if(main&&(w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
-  h+=`<div class="g2" style="margin-top:16px"><a class="btn ghost sm" href="#w/${esc(w.id)}/klaar">Afsluiten →</a><button class="btn ghost sm" id="rest">Rust ${fmt(w.rest_sec||90)}</button></div>
-   <button class="btn red sm" id="reset" style="margin-top:8px">Reset deze workout</button>`;
+  h+=`<button class="btn red sm" id="reset" style="margin-top:16px">Reset deze workout</button>`;
   app.innerHTML=h;
   const restS=w.rest_sec||90, last=ti>=T.length-1;
   const nextName=()=>{ const n=T[ti+1]; return n?n.label+' · '+(n.block.items[0]||{}).exercise:'Afsluiten'; };
@@ -358,10 +395,9 @@ function viewWorkout(w,tab){
   setBar(`<button class="btn" id="next">${label}</button>`);
   const check=k=>{ const s=l.sets[k]; s.done=!s.done; s.ts=new Date().toISOString(); if(!l.started_at)l.started_at=s.ts; saveLog(l);
     if(s.done){ const allDone=l.sets.filter(x=>x.block===s.block&&x.round===s.round).every(x=>x.done);
-      if(allDone&&main&&ti<T.length-1){ startRest(restS,nextName(),w.title+' · na '+cur.label.toLowerCase()); restBackTo('#w/'+w.id+'/'+T[ti+1].key); return; }
+      // v14.2: geen automatische rust na de laatste oefening; rust start alleen via de oranje knop onderin
       if(allDone&&!main){ const n=T[ti+1]||{key:'klaar',label:'Afsluiten'}; LS.set('nextRound',{id:w.id,key:n.key,label:n.label,from:cur.label,fromKey:cur.key}); return viewWorkout(w,cur.key); } }
     viewWorkout(w,cur.key); };
-  app.querySelector('#rest').onclick=()=>startRest(restS,firstOpen?firstOpen.it.exercise:nextName(),w.title);
   const gn=app.querySelector('#gonext'); if(gn) gn.onclick=()=>{ const x=LS.get('nextRound',null); LS.set('nextRound',null); go(x&&x.key||T[ti+1].key); };
   bar.querySelector('#next').onclick=()=>{ LS.set('training',1); wake();
     if(main){ const now=new Date().toISOString(); sets.forEach(({k})=>{ if(!l.sets[k].done){l.sets[k].done=true;l.sets[k].ts=now;} }); if(!l.started_at)l.started_at=now; saveLog(l);
@@ -370,13 +406,13 @@ function viewWorkout(w,tab){
   app.onclick=e=>{ const b=e.target.closest('button,[data-chk],[data-del]'); if(!b)return; const d=b.dataset;
     if(d.del!=null){ const exEl=b.closest('.ex'); if(exEl&&exEl.classList.contains('swiping')) return deleteExercise(w,d.del); return; }
     const sw=b.closest('.ex.swiping'); if(sw){ sw.classList.remove('swiping'); sw.querySelector('.mv').style.transform=''; return; }
-    if(d.ip!=null){ unlockAudio(); wake(); LS.set('training',1); const key=itKey(w,d.ip); const it=cur.block.items.find(i=>i.exercise===l.sets[d.ip].exercise);
+    if(d.ip!=null){ unlockAudio(); wake(); LS.set('training',1); const key=itKey(w,d.ip); const it=cur.block.items.find(i=>sameEx(i.exercise,l.sets[d.ip].exercise));
       let st=LS.get(key)||{dur:itemDur(it),start:0,pausedAt:0,pausedTotal:0};
       if(!st.start)st.start=Date.now(); else if(st.pausedAt){st.pausedTotal+=Date.now()-st.pausedAt;st.pausedAt=0;} else st.pausedAt=Date.now();
       LS.set(key,st); return viewWorkout(w,cur.key); }
     if(d.ir!=null){ const st=LS.get(itKey(w,d.ir)); if(st)LS.set(itKey(w,d.ir),{dur:st.dur,start:0,pausedAt:0,pausedTotal:0}); return viewWorkout(w,cur.key); }
     if(d.iset!=null) return pickDur(d.iset);
-    if(d.w!=null){ const s=l.sets[d.w], it=cur.block.items.find(i=>i.exercise===s.exercise); const st=it.load_step||2.5; s.load_done=Math.max(0,Math.round(((+s.load_done||0)+st*d.d)*10)/10); saveLog(l); return viewWorkout(w,cur.key); }
+    if(d.w!=null){ const s=l.sets[d.w], it=cur.block.items.find(i=>sameEx(i.exercise,s.exercise)); const st=it.load_step||2.5; s.load_done=Math.max(0,Math.round(((+s.load_done||0)+st*d.d)*10)/10); saveLog(l); return viewWorkout(w,cur.key); }
     if(d.r!=null){ const s=l.sets[d.r]; const n=num(s.reps_done); if(n==null)return; s.reps_done=String(Math.max(0,n+(+d.d))); saveLog(l); return viewWorkout(w,cur.key); }
     if(d.wt!=null){ const s=l.sets[d.wt]; const v=prompt('Gewicht in kg',s.load_done??''); if(v!==null&&v.trim()!==''&&!isNaN(+v.replace(',','.'))){s.load_done=+v.replace(',','.');saveLog(l);} return viewWorkout(w,cur.key); }
     if(d.reps!=null){ const s=l.sets[d.reps]; const v=prompt('Reps gedaan',s.reps_done); if(v!==null){s.reps_done=v.trim();saveLog(l);} return viewWorkout(w,cur.key); }
@@ -386,7 +422,7 @@ function viewWorkout(w,tab){
     if(d.chk!=null) return check(+d.chk);
   };
   hd.onclick=e=>{ const t=e.target.closest('[data-tab]'); if(t)go(t.dataset.tab); };
-  const pickDur=k=>{ const key=itKey(w,k), it=cur.block.items.find(i=>i.exercise===l.sets[k].exercise), st=LS.get(key);
+  const pickDur=k=>{ const key=itKey(w,k), it=cur.block.items.find(i=>sameEx(i.exercise,l.sets[k].exercise)), st=LS.get(key);
     const v=prompt('Tijd (bv. 5, 5:30 of 45s)', fmt(st?st.dur:itemDur(it))); if(!v)return;
     let sec; const t=v.trim().toLowerCase(); if(/s$/.test(t))sec=parseFloat(t); else if(t.includes(':')){const p=t.split(':').map(Number);sec=p[0]*60+p[1];} else sec=parseFloat(t.replace(',','.'))*60;
     if(sec>0){ LS.set(key,{dur:Math.round(sec),start:0,pausedAt:0,pausedTotal:0}); viewWorkout(w,cur.key); } };
@@ -500,12 +536,13 @@ function viewSummary(w){ const run=isRun(w); subHead(run?'Tempo · gedaan ✓':'
 
 /* ---------- Week ---------- */
 function viewWeek(){
-  appHead('week'); const off=LS.get('weekOff',0), b=new Date(); b.setDate(b.getDate()+off*7); const wk=weekOf(ymd(b));
-  let h=`<div class="lbl" style="margin-top:8px">${+wk[0].slice(8)} ${MAAND[+wk[0].slice(5,7)-1].slice(0,3)} – ${+wk[6].slice(8)} ${MAAND[+wk[6].slice(5,7)-1].slice(0,3)}${offlineTag()}</div><h1>Week ${wkNo(wk[0])}</h1>
-   <div class="seg3" data-noswipe><button data-off="-1" aria-label="vorige week">←</button><button data-off="0" class="${off===0?'on':''}">Nu</button><button data-off="1" aria-label="volgende week">→</button></div>`;
+  appHead('week'); const off=LS.get('weekOff',0), b=new Date(); b.setDate(b.getDate()+off*7); const wk=weekOf(ymd(b)), sm=ds=>+ds.slice(8)+' '+MAAND[+ds.slice(5,7)-1].slice(0,3);
+  let h=`<div class="wkhd"><h1>Week ${wkNo(wk[0])}</h1><span class="lbl">${sm(wk[0])} – ${sm(wk[6])}${offlineTag()}</span></div>
+   <div class="seg3 sm" data-noswipe><button data-off="-1" aria-label="vorige week">←</button><button data-off="0" class="${off===0?'on':''}">Nu</button><button data-off="1" aria-label="volgende week">→</button></div>
+   ${chainStrip(wk[0])}`;
   wk.forEach((ds,i)=>{ const ws=PLAN.filter(w=>w.date===ds);
     if(!ws.length) h+=`<div class="card wl ${ds===today()?'today':''}"><span class="dn">${DAYS[i]}</span><span class="sp mu">Rust</span></div>`;
-    ws.forEach(w=>{ const d=durOf(w); h+=`<a class="card wl ${ds===today()?'today':''}" href="#w/${esc(w.id)}"><span class="dn">${DAYS[i]}</span><span class="sp"><b>${esc(w.title)}</b><div class="mu" style="font-size:14px">${TYPES[w.type]||''}${d?' · '+d+' min':''}${w.rounds>1?' · '+w.rounds+' rondes':''}</div></span>${stBadge(w)}</a>`; }); });
+    ws.forEach(w=>{ h+=`<a class="card wl ${ds===today()?'today':''}" href="#w/${esc(w.id)}"><span class="dn">${DAYS[i]}</span><span class="sp"><b>${esc(w.title)}</b></span>${stBadge(w)}</a>`; }); });
   app.innerHTML=h;
   app.onclick=e=>{const o=e.target.closest('[data-off]'); if(!o)return; LS.set('weekOff',o.dataset.off==='0'?0:off+(+o.dataset.off)); viewWeek();};
 }
@@ -532,7 +569,7 @@ function viewProg(k){ appHead('progressie'); k=k==='hardlopen'?'hardlopen':(k||L
       const m=today().slice(0,7), km=runs.filter(l=>l.date.startsWith(m)).reduce((a,l)=>a+(+l.run.distance_km||0),0), longest=Math.max(...runs.map(l=>+l.run.distance_km||0));
       h+=`<div class="card exs"><div class="li"><span class="sp">Km deze maand</span><b class="num" style="font-size:22px">${String(Math.round(km*10)/10).replace('.',',')} km</b></div><div class="li"><span class="sp">Langste run</span><b class="num" style="font-size:22px">${String(longest).replace('.',',')} km</b></div><div class="li"><span class="sp">Sessies</span><b class="num" style="font-size:22px">${runs.length}</b></div></div>
       <h2>Laatste loopsessies</h2><div class="card exs">${runs.slice(-8).reverse().map(l=>{const r=l.run,w=byId(l.workout_id);return `<div class="li"><span class="sp"><b>${+l.date.slice(8)}/${+l.date.slice(5,7)}</b> · ${esc(w?w.title:l.workout_id)}</span><span class="mu" style="font-size:14px">${r.distance_km!=null?esc(String(r.distance_km).replace('.',','))+' km':''}${r.duration_min!=null?' · '+Math.round(r.duration_min)+'′':''}${r.avg_hr?' · ♥ '+esc(r.avg_hr):''}</span></div>`}).join('')}</div>`; } }
-  app.innerHTML=h+mikeline(esc(TRAINER())+' kijkt mee naar je progressie');
+  app.innerHTML=h;
 }
 
 /* ---------- Loopsessie (Zone 2 / tempo-intervallen) ---------- */
@@ -663,7 +700,7 @@ async function diagnose(v){
 
 
 /* ---------- swipe tussen tabs ---------- */
-const MAIN_TABS=['vandaag','week','progressie'];
+const MAIN_TABS=['vandaag','morgen','week','progressie'];
 let sw0=null;
 app.addEventListener('touchstart',e=>{ if(e.touches.length!==1||ov.style.display==='block'){sw0=null;return;}
   if(e.target.closest('input,textarea,select,.step,.itimer,.ex,.rpe,.fb,.seg3,.bars,[data-noswipe]')){sw0=null;return;}
