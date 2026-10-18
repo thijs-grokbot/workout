@@ -20,8 +20,8 @@ assert.match(await p.innerText('header nav.tabs a.on'),/Morgen/);
 assert.ok(await p.$('#start[href="#w/2026-10-15-thuis"]'),'start-knop wijst niet naar morgen');
 await p.screenshot({path:__dirname+'/shots/v142-morgen.png',fullPage:true});
 // swipe: Morgen → Week → Progressie, terug → Week → Morgen → Vandaag
-const sw=async dx=>{await p.evaluate(dx=>{const el=document.querySelector('#app');const mk=(type,x)=>{const e=new Event(type,{bubbles:true});const pt={identifier:1,target:el,clientX:x,clientY:400};Object.defineProperty(e,'touches',{value:type==='touchend'?[]:[pt]});Object.defineProperty(e,'changedTouches',{value:[pt]});return e;};
- el.dispatchEvent(mk('touchstart',200));el.dispatchEvent(mk('touchend',200+dx));},dx);await p.waitForTimeout(300);};
+const sw=async dx=>{await p.evaluate(dx=>{const el=document.querySelector('#app');const mk=(type,x)=>{const e=new Event(type,{bubbles:true,cancelable:true});const pt={identifier:1,target:el,clientX:x,clientY:400};Object.defineProperty(e,'touches',{value:type==='touchend'?[]:[pt]});Object.defineProperty(e,'changedTouches',{value:[pt]});return e;};
+ el.dispatchEvent(mk('touchstart',200));for(let k=1;k<=6;k++)el.dispatchEvent(mk('touchmove',200+dx*k/6));el.dispatchEvent(mk('touchend',200+dx));},dx);await p.waitForTimeout(700);};
 const seq=[];for(const dx of [-150,-150,150,150,150]){await sw(dx);seq.push(await p.evaluate(()=>location.hash));}
 assert.deepStrictEqual(seq,['#week','#progressie','#week','#morgen','#vandaag']);
 assert.ok(await p.isVisible('#micfab'));

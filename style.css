@@ -174,11 +174,32 @@ body:has(.minirest[style*="flex"]) #app{padding-bottom:84px}
 .streak .shl{display:flex;align-items:center;gap:10px}.streak .shl .nt{margin-left:0}
 .wkhd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:8px}.wkhd h1{margin:0}
 .seg3.sm button{height:44px}
-.chain{display:flex;align-items:center;margin:14px 0 10px;padding:0 4px}
-.chain .lk{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;font-size:12px;color:var(--mu);font-weight:600}
-.chain .lk i{width:26px;height:16px;border-radius:9px;border:3px solid var(--line);background:transparent;position:relative;z-index:1}
-.chain .lk:not(:last-child):after{content:"";position:absolute;top:7px;left:calc(50% + 13px);right:calc(-50% + 13px);height:3px;background:var(--line)}
-.chain .lk.ok i,.chain .lk.rest i{border-color:var(--ac)}.chain .lk.ok i{background:var(--ac)}
-.chain .lk.ok:not(:last-child):after,.chain .lk.rest:not(:last-child):after{background:var(--ac)}
-.chain .lk.part i{border-color:#FFC266}.chain .lk.brk i{border-color:var(--red);border-style:dashed}
-.chain .lk.today span{color:var(--ac)}.chain .lk.today i{box-shadow:0 0 0 3px rgba(255,107,26,.25)}
+
+/* v14.3 */
+#app{touch-action:pan-y}
+.swghost{position:fixed;left:0;right:0;bottom:0;z-index:5;overflow:hidden;pointer-events:none;background:var(--bg);will-change:transform}
+/* streak-ketting: vakjes op één rechte lijn, vaste maat (geen verspringing) */
+.chain{display:grid;grid-template-columns:repeat(7,1fr);margin:16px 0 12px}
+.chain .lk{display:flex;flex-direction:column;align-items:center;gap:8px;position:relative;font-size:12px;line-height:14px;color:var(--mu);font-weight:600}
+.chain .lk i{box-sizing:border-box;display:block;width:24px;height:24px;border-radius:6px;border:2px solid var(--line);background:var(--bg);position:relative;z-index:1}
+.chain .lk:not(:last-child):after{content:"";position:absolute;top:11px;left:calc(50% + 12px);width:calc(100% - 24px);height:2px;background:var(--line)}
+.chain .lk.ok i{background:var(--ac);border-color:var(--ac)}.chain .lk.cn:after{background:var(--ac)}
+.chain .lk.miss i{background:transparent;border-style:dashed;border-color:var(--mu)}
+.chain .lk.today span{color:var(--ac)}.chain .lk.today:not(.ok):not(.miss) i{border-color:var(--ac)}
+/* rustdag */
+.restday{padding:22px 18px}.restday .em{font-size:34px;display:block;margin-bottom:6px}.restday .h{font-size:34px;display:block}
+.restday .rl2{margin-top:14px;border-top:1px solid var(--line)}.restday .li{min-height:48px}
+.rlink{display:inline-block;margin-top:12px;color:var(--ac);font-weight:600}
+/* voorvertoning */
+.pvlink{min-height:56px;margin-top:-4px}
+.pv .li{min-height:64px;padding:10px 0;align-items:center}.pv .sub{font-size:13px}
+.pvr{font:800 20px var(--cond);text-align:right;white-space:nowrap;text-transform:uppercase}.pvr small{display:block;font:600 12px var(--font);color:var(--mu);text-transform:none}
+/* progressie hardlopen */
+.trend{width:100%;height:96px;margin-top:10px;display:block}.trend .ln{fill:none;stroke:var(--ac);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.trend .wk{fill:var(--ac)}.trend .pt{fill:var(--card2);stroke:var(--mu);stroke-width:1.5}
+.effl{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--mu)}.effl b{color:var(--tx);font:800 16px var(--cond)}
+.z2b .col{position:relative;height:100%;background:none!important;min-height:0}.z2b .col b{position:absolute;left:0;right:0;bottom:0;background:var(--card2);border-radius:6px 6px 2px 2px}.z2b .col.hi b{background:var(--ac)}.z2b .goal{position:absolute;left:-4px;right:-4px;height:2px;background:var(--tx);opacity:.8;border-radius:1px}
+details.more{margin-top:10px;padding:12px 16px}details.more summary{font-size:14px;color:var(--mu);cursor:pointer}details.more .field{display:block;margin-top:10px}
+.num small{text-transform:none}
+.z2b,.z2a{justify-content:space-around}.z2b .col,.z2a span{flex:1;max-width:64px}
+details.more{padding:12px 16px!important;min-height:0!important}details.more summary{list-style:none;display:flex;align-items:center;gap:6px}details.more summary::-webkit-details-marker{display:none}details.more summary:before{content:"＋";color:var(--ac);font-weight:800}details.more[open] summary:before{content:"−"}

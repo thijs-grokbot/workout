@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v14.2', APP_BUILD='volgas';
+const APP_VERSION='v14.3', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -62,7 +62,7 @@ async function api0(method,params,body,cfg=CFG,tries=2){
   }
   throw last;
 }
-const $ = s => document.querySelector(s), app = $('#app');
+const $ = s => document.querySelector(s); let app = $('#app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const LS = { get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}, set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)) };
 const pad = n => String(n).padStart(2,'0');
@@ -179,7 +179,7 @@ function beep(n=3,f=880){ try{ if(AC){ if(AC.state==='suspended')AC.resume(); fo
 function flash(el){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
 let WL=null; async function wake(){ try{ if('wakeLock' in navigator && !WL){ WL=await navigator.wakeLock.request('screen'); WL.addEventListener('release',()=>WL=null);} }catch(e){} }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden && LS.get('training',0)) wake(); });
-const bar=$('#bar'), hd=$('#hd'), ov=$('#overlay');
+const bar=$('#bar'), ov=$('#overlay'); let hd=$('#hd');
 function setBar(h){ bar.innerHTML=h||''; bar.style.display=h?'':'none'; document.body.classList.toggle('hasfoot',!!h); }
 const MIC='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 const BRAND='<a class="brand" href="#vandaag" aria-label="VOLGAS">VOL<b>GAS</b></a>';
@@ -226,13 +226,19 @@ if(R) openTimer();
 /* ---------- streak (reeks) ---------- */
 const TIERS=[['Vonk',1,6,'✨','t-vonk'],['Vlam',7,20,'🔥','t-vlam'],['Vuur',21,49,'🔥','t-vuur'],['Inferno',50,1e9,'🔥','t-inferno']];
 const tierOf=n=>TIERS.find(t=>n>=t[1]&&n<=t[2])||TIERS[0];
+// v14.3: telt per DATUM (workout_id hoeft niet met het plan te kloppen). Gedaan/deels telt, geplande rustdag telt, overgeslagen/gemist breekt.
+const DONE_ST=['gedaan','deels'];
+function dayState(ds){ const t=today(), L=allLogs().filter(l=>l.date===ds), ws=PLAN.filter(w=>w.date===ds);
+  if(L.some(l=>DONE_ST.includes(l.status)||(!l.status&&((l.sets||[]).some(s=>s.done)||(l.run&&(l.run.distance_km||l.run.duration_min))))))return 'done';
+  if(L.some(l=>l.status==='overgeslagen'))return 'skip';
+  if(ws.length&&ws.every(w=>w.type==='rest'))return ds>t?'future':'rest';
+  if(!ws.length)return ds<t?'free':'future';
+  return ds<t?'miss':ds===t?'open':'future'; }
 function streak(){ const logs=allLogs().filter(isMeaningful); if(!logs.length)return 0;
   const first=logs.map(l=>l.date).sort()[0], t=today(); let n=0; const d=new Date(first+'T12:00');
-  const doneOn=ds=>logs.some(l=>l.date===ds&&(l.status==='gedaan'||l.status==='deels'||(l.sets||[]).some(s=>s.done)||(l.run&&(l.run.distance_km||l.run.duration_min))));
-  for(;ymd(d)<=t;d.setDate(d.getDate()+1)){ const ds=ymd(d), ws=PLAN.filter(w=>w.date===ds&&w.type!=='rest');
-    if(!ws.length){ if(ds<t)n++; continue; }
-    if(doneOn(ds)){ n++; continue; }
-    if(ds===t)continue; n=0; }
+  for(;ymd(d)<=t;d.setDate(d.getDate()+1)){ const s=dayState(ymd(d));
+    if(s==='done'||s==='rest'||s==='free'){ n++; continue; }
+    if(s==='open'||s==='future')continue; n=0; }
   return n; }
 function streakCard(){ const n=streak(), T=tierOf(n);
   return `<a class="card streak ${T[4]}" href="#reeks"><span class="em">${T[3]}</span><span class="sp shl"><b class="h">${n} ${n===1?'dag':'dagen'}</b><span class="nt">${T[0].toUpperCase()}</span></span><span class="mu" style="font-size:22px">›</span></a>`; }
@@ -240,7 +246,7 @@ function viewStreak(){ const n=streak(), cur=tierOf(n); subHead(n+' '+(n===1?'da
   app.innerHTML=`
   ${TIERS.map(T=>`<div class="card tier ${T[4]} ${T===cur?'cur':''}"><span class="em">${T[3]}</span><div class="sp"><b class="h">${T[0]}</b><div class="mu" style="font-size:15px">${T[2]>1e6?T[1]+'+ dagen':T[1]+'–'+T[2]+' dagen'}</div></div>${T===cur?`<span class="n">${n}</span>`:''}</div>`).join('')}
   <h2>Mijlpalen</h2><div class="miles">${[7,21,50,100].map(m=>`<div class="${n>=m||LS.get('mile',0)>=m?'got':''}"><span>🏅</span>${m}</div>`).join('')}</div>
-  <p class="mu" style="margin-top:14px;font-size:14px">Rustdagen tellen mee. Een gemiste geplande training breekt je reeks.</p>`; }
+  <p class="mu" style="margin-top:14px;font-size:14px">Elke gedane training telt, ook als die afwijkt van het plan. Geplande rustdagen tellen mee. Overslaan of missen breekt je reeks.</p>`; }
 function checkMilestone(){ const n=streak(), m=[100,50,21,7].find(x=>n>=x); if(!m||LS.get('mile',0)>=m)return; LS.set('mile',m); celebrate(m); }
 function celebrate(m){ const d=document.createElement('div'); d.className='celebrate'; const T=tierOf(m);
   d.innerHTML=`<div class="em">${T[3]}</div><div class="q">${m} dagen!</div><div style="font-size:17px">Je bent nu <b style="color:var(--ac)">${T[0]}</b>. 🏅 Badge ${m}</div><div class="mu" style="font-size:15px;margin-top:10px">${esc(TRAINER())}: “Sterk volgehouden, zo blijven gaan.”</div><button class="btn">Door met trainen</button>`;
@@ -259,33 +265,35 @@ function route(){
   if(v==='week'){ viewWeek(); return Voice.after(v); }
   if(v==='progressie'){ viewProg(arg); return Voice.after(v); }
   if(v==='reeks'){ viewStreak(); return Voice.after(v); }
-  if(v==='w'){ viewWorkout(byId(arg),tab); return Voice.after(v,arg,tab); }
+  if(v==='voorbeeld'){ viewPreview(byId(arg),tab); return Voice.after(v,arg,tab); }
+  if(v==='w'){ const w=byId(arg); if(w&&w.type==='rest'&&!tab){ viewRestDay(w); return Voice.after(v,arg,tab); } viewWorkout(w,tab); return Voice.after(v,arg,tab); }
   viewToday(); Voice.after('vandaag'); checkMilestone();
 }
-addEventListener('hashchange',()=>{ if(handleMagicLink()){ syncLabel(); toast('Gekoppeld ✓'); loadPlan(); loadServerLogs().then(flush); } route(); scrollTo(0,0); });
+addEventListener('hashchange',()=>{ if(handleMagicLink()){ syncLabel(); toast('Gekoppeld ✓'); loadPlan(); loadServerLogs().then(flush); } route(); scrollTo(0,0); swCleanup(); });
 const MAAND=['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'], DAG=['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
 const longDate=ds=>{const d=new Date(ds+'T12:00');return DAG[d.getDay()]+' '+d.getDate()+' '+MAAND[d.getMonth()];};
 const isRun=w=>w.type==='run_z2'||w.type==='run_tempo';
 function statusOf(w){ const l=LS.get(logKey(w.id)); if(!l)return ''; if(l.status)return l.status; return (l.sets||[]).some(s=>s.done)?'bezig':''; }
 const ST={gedaan:['ok','✓ Gedaan'],deels:['part','Deels'],overgeslagen:['skip','Overgeslagen'],bezig:['part','Bezig']};
-function stBadge(w){ const s=statusOf(w); if(ST[s])return `<span class="st ${ST[s][0]}">${ST[s][1]}</span>`; return `<span class="st">${w.date===today()?'Vandaag':w.date<today()?'Open':'Gepland'}</span>`; }
+function stBadge(w){ const s=statusOf(w); if(ST[s])return `<span class="st ${ST[s][0]}">${ST[s][1]}</span>`; if(w.type==='rest')return `<span class="st">Rust</span>`; if(w.date<=today()&&dayState(w.date)==='done')return `<span class="st ok">✓ Gedaan</span>`; return `<span class="st">${w.date===today()?'Vandaag':w.date<today()?'Open':'Gepland'}</span>`; }
 function durOf(w){ if(w.duration_min)return w.duration_min; if(w.amrap_min)return w.amrap_min+15; const iv=w.intervals; if(iv)return (iv.warmup_min||0)+iv.reps*(iv.work_min||0)+(iv.reps-1)*(iv.rest_min||0)+(iv.cooldown_min||0); return w.est_min||null; }
 function weekOf(ds){ const d=new Date(ds+'T12:00'); d.setDate(d.getDate()-((d.getDay()+6)%7)); return Array.from({length:7},(_,i)=>{const x=new Date(d);x.setDate(d.getDate()+i);return ymd(x)}); }
 const cap=s=>s?s[0].toUpperCase()+s.slice(1):s;
 const mikeline=t=>`<div class="mike"><div class="av s">${esc(initials(TRAINER()))}</div><span>${t}</span></div>`;
 const offlineTag=()=>navigator.onLine?'':' · offline';
 addEventListener('offline',()=>softRoute()); addEventListener('online',()=>softRoute());
-function dayDot(ds){ const ws=PLAN.filter(w=>w.date===ds); if(!ws.length)return ''; const s=ws.map(statusOf);
-  if(s.some(x=>x==='gedaan'))return 'g'; if(s.some(x=>x==='deels'||x==='bezig'))return 'p'; if(s.some(x=>x==='overgeslagen'))return 'x'; return ds===today()?'p':''; }
-// streak-ketting: één schakel per dag (Ma–Zo); tik = workout van die dag
-function chainStrip(t,ref){ const wk=weekOf(t), td=ref||today();
-  return `<div class="chain" aria-label="Reeks deze week">${wk.map((ds,i)=>{ const ws=PLAN.filter(x=>x.date===ds), w=ws.find(x=>x.type!=='rest')||ws[0], d=dayDot(ds), train=ws.some(x=>x.type!=='rest');
-    const c=d==='g'?'ok':d==='x'?'brk':(!train&&ds<td)?'rest':(train&&ds<td&&d!=='p')?'brk':d==='p'&&ds<=td?'part':'';
-    return `<a class="lk ${c} ${ds===td?'today':''}" href="${w?'#w/'+esc(w.id):'#week'}"><i></i><span>${cap(DAYS[i]).slice(0,2)}</span></a>`; }).join('')}</div>`; }
-function weekStrip(t){ const wk=weekOf(t); return `<div class="week">${wk.map((ds,i)=>{ const w=PLAN.find(x=>x.date===ds);
-  return `<a class="day ${ds===t?'today':''}" href="${w?'#w/'+esc(w.id):'#week'}">${cap(DAYS[i])}<b>${+ds.slice(8)}</b><span class="d ${dayDot(ds)}"></span></a>`; }).join('')}</div>`; }
+// streak-ketting: één vakje per dag (Ma–Zo) op één rechte lijn; gevuld = gehaald/rustdag, gestippeld = gemist/overgeslagen
+function chainStrip(t){ const wk=weekOf(t), td=today(), S=wk.map(dayState), fill=s=>s==='done'||s==='rest'||s==='free';
+  return `<div class="chain" aria-label="Reeks deze week">${wk.map((ds,i)=>{ const ws=PLAN.filter(x=>x.date===ds), w=ws.find(x=>x.type!=='rest')||ws[0], s=S[i];
+    const c=fill(s)?'ok':(s==='miss'||s==='skip')?'miss':'';
+    return `<a class="lk ${c} ${fill(s)&&i<6&&fill(S[i+1])?'cn':''} ${ds===td?'today':''}" href="${w?'#w/'+esc(w.id):'#week'}" aria-label="${esc(cap(DAG[(i+1)%7]))}: ${s==='done'?'gedaan':s==='rest'?'rustdag':s==='miss'?'gemist':s==='skip'?'overgeslagen':'open'}"><i></i><span>${cap(DAYS[i])}</span></a>`; }).join('')}</div>`; }
 const wkNo=ds=>+isoWeek(ds).split('-W')[1];
-function heroCard(w,ey){ const d=durOf(w), n=(w.blocks||[]).filter(isMain).reduce((a,b)=>a+b.items.length,0), st=statusOf(w);
+function restCard(w){ const it=(w.blocks||[]).flatMap(b=>b.items||[]);
+  return `<div class="card restday"><span class="em">🛌</span><b class="h">Rustdag</b><div class="mu">Herstel hoort bij je schema.</div>
+   ${it.length?`<div class="rl2">${it.map(i=>`<div class="li"><span class="sp">${esc(i.exercise)}</span><span class="mu">${esc(i.reps||'')}</span></div>`).join('')}</div>`:''}
+   ${it.length?`<a class="rlink" href="#w/${esc(w.id)}/b0">Herstel bijhouden ›</a>`:''}</div>`; }
+const pvLink=w=>w.type==='rest'?'':`<a class="card row pvlink" href="#voorbeeld/${esc(w.id)}"><span class="sp"><b>Bekijk de hele workout</b></span><span class="mu" style="font-size:22px">›</span></a>`;
+function heroCard(w,ey){ if(w.type==='rest')return restCard(w); const d=durOf(w), n=(w.blocks||[]).filter(isMain).reduce((a,b)=>a+b.items.length,0), st=statusOf(w);
   const big=isRun(w)?(w.type==='run_tempo'&&w.intervals?`${w.intervals.reps}×${w.intervals.work_min||''} min<br>tempo`:`${d||''} min<br>Zone 2`):w.type==='rest'?'Rustdag':`${w.rounds>1?w.rounds+' rondes':'1 ronde'}<br>${n} oefeningen`;
   return `<div class="card hero"><div class="lbl">${esc(w.title)}</div><div class="big" style="margin-top:6px">${big}</div>
    <div class="chips">${st==='deels'?'<span class="chip">Deels gedaan</span>':''}${st==='overgeslagen'?'<span class="chip">Overgeslagen</span>':''}${d?`<span class="chip">± ${d} min</span>`:''}${w.rest_sec?`<span class="chip">Rust ${fmt(w.rest_sec)}</span>`:''}${w.hr_target?`<span class="chip">HR ${esc(w.hr_target)}</span>`:''}</div>
@@ -305,7 +313,7 @@ function viewToday(){
   let h=unl+streakCard()+`<div class="lbl" style="margin-bottom:10px">${esc(cap(ey))} · week ${wkNo(t)}${offlineTag()}</div>`;
   if(!w) h+=`<h1>Niets gepland</h1>`;
   else if(w.date===t&&statusOf(w)==='gedaan') h+=summaryBody(w,true);
-  else { h+=heroCard(w,ey); if((w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
+  else { h+=heroCard(w,ey)+pvLink(w); if((w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
     if(todays.length>1) h+='<h2>Ook vandaag</h2>'+todays.slice(1).map(x=>`<a class="card wl" href="#w/${esc(x.id)}"><span class="sp"><b>${esc(x.title)}</b></span>${stBadge(x)}</a>`).join(''); }
   if(!(w&&w.date===t&&statusOf(w)==='gedaan')) h+=morgenLink(PLAN.find(x=>x.date>t));
   const lastAdj=Object.values(LS.get('overrides',{})).filter(o=>o.workout.date>=t).sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0];
@@ -324,7 +332,7 @@ function viewMorgen(){
     h+=`<h1>Niets gepland</h1><p class="mu" style="margin-bottom:16px">Er staat morgen niets in je schema.</p>`;
     if(next) h+=morgenLink(next);
   } else {
-    h+=heroCard(w,longDate(t));
+    h+=heroCard(w,longDate(t))+pvLink(w);
     if((w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
     if(tomorrows.length>1) h+='<h2>Ook morgen</h2>'+tomorrows.slice(1).map(x=>`<a class="card wl" href="#w/${esc(x.id)}"><span class="sp"><b>${esc(x.title)}</b></span>${stBadge(x)}</a>`).join('');
   }
@@ -347,6 +355,32 @@ function summaryBody(w,onToday){
   if(onToday) h+=`<a class="btn ghost sm" href="#w/${esc(w.id)}">Workout bekijken</a>`;
   const n=PLAN.find(x=>x.date>w.date); if(n) h+=morgenLink(n);
   return h; }
+
+/* ---------- Rustdag ---------- */
+function viewRestDay(w){ subHead(cap(longDate(w.date)),'Rustdag',w.date===tomorrow()?'#morgen':'#vandaag'); app.innerHTML=restCard(w); }
+
+/* ---------- Voorvertoning: alleen lezen, start niets en schrijft niets ---------- */
+function viewPreview(w,tab){
+  if(!w){ subHead('','Niet gevonden'); app.innerHTML='<h1>Workout niet gevonden</h1>'; return; }
+  if(w.type==='rest') return viewRestDay(w);
+  const back=w.date===tomorrow()?'#morgen':'#vandaag'; let h='';
+  if(isRun(w)){ subHead('Voorvertoning',w.title,back); const P=phasesOf(w), d=durOf(w);
+    h+=`<div class="card"><div class="row" style="gap:18px">${d?`<div><div class="lbl">Duur</div><div class="num" style="font-size:30px">± ${d} min</div></div>`:''}${w.hr_target?`<div><div class="lbl">Doel-HR</div><div class="num" style="font-size:30px">${esc(w.hr_target)}</div></div>`:''}</div></div>
+     <div class="card exs pv">${P.map(q=>`<div class="li"><span class="sp"><b>${esc(q.name)}</b>${q.hint?`<div class="sub">${esc(q.hint)}</div>`:''}</span><span class="mu">${fmt(q.sec)}</span></div>`).join('')}</div>`;
+  } else { const T=tabsOf(w); let ti=Math.max(0,T.findIndex(t=>t.key===tab)); const cur=T[ti], main=cur&&isMain(cur.block), R=w.rounds||1;
+    subHead('Voorvertoning · '+w.title, cur?(main&&R>1?'Ronde '+cur.round+' van '+R:cur.label):w.title, back);
+    if(T.length>1) hd.insertAdjacentHTML('beforeend',`<div class="tabs" data-noswipe>${T.map((t,i)=>`<button class="${i===ti?'on':''}" data-ptab="${t.key}">${esc(t.label)}</button>`).join('')}</div>`);
+    if(cur) h+=`<div class="card exs pv">${cur.block.items.map(it=>{ const u=it.load_unit||'kg', u2=u.replace(/\s*kg$/,'').trim();
+      const load=it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':it.load_default!=null?(u2?u2+' ':'')+it.load_default+' kg':'';
+      const reps=it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'';
+      return `<div class="li"><span class="sp"><b>${esc(it.exercise)}</b>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</span><span class="pvr">${esc(reps)}${load?`<small>${esc(load)}</small>`:''}</span></div>`; }).join('')}</div>`;
+    if(main&&w.rest_sec) h+=`<div class="hint">Rust tussen rondes ${fmt(w.rest_sec)}</div>`;
+    hd.onclick=e=>{ const b=e.target.closest('[data-ptab]'); if(b) location.replace('#voorbeeld/'+w.id+'/'+b.dataset.ptab); };
+  }
+  app.innerHTML=h;
+  setBar(`<a class="btn" id="pvstart" href="#w/${esc(w.id)}">▶ ${statusOf(w)?'Verder met training':'Start training'}</a>`);
+  bar.querySelector('#pvstart').onclick=()=>{ unlockAudio(); LS.set('training',1); wake(); };
+}
 
 /* ---------- Workout (kracht / thuis / rust) ---------- */
 function tabsOf(w){ const T=[]; (w.blocks||[]).forEach((b,bi)=>{ if(isMain(b)) for(let r=1;r<=(w.rounds||1);r++)T.push({key:'r'+r,label:(w.rounds||1)>1?'Ronde '+r:(w.amrap_min?'AMRAP':'Hoofdset'),block:b,round:r});
@@ -506,8 +540,11 @@ function viewFinish(w,l){
   const mc=(lbl,key,mode,val)=>`<label class="card mcard"><div class="lbl">${lbl}</div><input inputmode="${mode}" data-run="${key}" value="${esc(val??'')}" placeholder="–" aria-label="${lbl}"></label>`;
   let h='';
   if(run){ const pace=ru.duration_min&&ru.distance_km?fmt(ru.duration_min*60/ru.distance_km)+' /km':'–';
-    h+=`<div class="lbl" style="margin-bottom:8px">Uit je horloge of ingesproken</div><div class="g2">${mc('Tijd (min)','duration_min','decimal',ru.duration_min)}${mc('Afstand (km)','distance_km','decimal',ru.distance_km!=null?String(ru.distance_km).replace('.',','):'')}${mc('Gem. HR','avg_hr','numeric',ru.avg_hr)}<div class="card mcard"><div class="lbl">Tempo</div><div class="num" style="font-size:34px">${pace}</div></div><div style="grid-column:span 2">${mc('Max HR','max_hr','numeric',ru.max_hr)}</div></div>
-    <label class="card row file" style="margin-top:10px"><span class="sp">📷 Screenshot horloge (optioneel)${l.screenshot?' · ✓ bijgevoegd':''}</span><input type="file" accept="image/*" id="shot" style="width:110px"></label>`; }
+    h+=`<div class="lbl" style="margin-bottom:8px">Uit je horloge of ingesproken</div><div class="g2">${mc('Tijd (min)','duration_min','decimal',ru.duration_min)}${mc('Afstand (km)','distance_km','decimal',ru.distance_km!=null?String(ru.distance_km).replace('.',','):'')}${mc('Gem. HR','avg_hr','numeric',ru.avg_hr)}<div class="card mcard"><div class="lbl">Tempo</div><div class="num" style="font-size:34px">${pace}</div></div>${mc('Max HR','max_hr','numeric',ru.max_hr).replace('class="card mcard"','class="card mcard" style="grid-column:span 2"')}</div>
+    <label class="card row file" style="margin-top:10px"><span class="sp">📷 Screenshot horloge (optioneel)${l.screenshot?' · ✓ bijgevoegd':''}</span><input type="file" accept="image/*" id="shot" style="width:110px"></label>
+    <details class="card more"><summary>Meer (optioneel)${ru.elevation_m!=null?' · '+esc(ru.elevation_m)+' hm':''}${(ru.block_paces||[]).length?' · '+ru.block_paces.length+' blokken':''}</summary>
+     <label class="field"><span class="lbl">Hoogtemeters (m)</span><input inputmode="numeric" data-run="elevation_m" value="${esc(ru.elevation_m??'')}" placeholder="bv. 60"></label>
+     ${w.type==='run_tempo'?`<label class="field"><span class="lbl">Tempo per blok (min:sec per km)</span><input data-bp value="${esc((ru.block_paces||[]).map(fmt).join(', '))}" placeholder="bv. 5:30, 5:25, 5:28"></label>`:''}</details>`; }
   if(w.type!=='rest') h+=`<div style="margin-top:${run?18:0}px">${RPE_HEAD}<div class="rpe">${Array.from({length:10},(_,i)=>`<button data-rpe="${i+1}" class="${l.rpe===i+1?'on':''}">${i+1}</button>`).join('')}</div></div>`;
   if(!run&&w.type!=='rest'&&mainEx.length){ const ld=e=>{ const x=msd.filter(s=>s.exercise===e&&s.load_done!=null).pop(); return x?' · '+x.load_done+' kg':''; };
     h+=`<h2>Per oefening</h2><div class="card" style="padding:12px">${mainEx.map((e,i)=>`<b style="display:block;margin-top:${i?12:0}px">${esc(e)}${ld(e)}</b><div class="fb">${['te licht','goed','te zwaar'].map(f=>`<button data-fb="${esc(e)}" data-v="${f}" class="${l.feedback[e]===f?'on':''}">${cap(f)}</button>`).join('')}</div>`).join('')}</div>`; }
@@ -528,6 +565,7 @@ function viewFinish(w,l){
   app.onchange=e=>{ const t=e.target;
     if(t.dataset.f){ l[t.dataset.f]=t.value; saveLog(l); }
     if(t.dataset.run){ l.run=l.run||{}; const v=t.value.replace(',','.').trim(); l.run[t.dataset.run]=v===''||isNaN(+v)?null:+v; saveLog(l); viewFinish(w,l); }
+    if(t.dataset.bp!=null){ l.run=l.run||{}; const a=t.value.split(/[,;\s]+/).map(parsePace).filter(x=>x); if(a.length)l.run.block_paces=a; else delete l.run.block_paces; saveLog(l); viewFinish(w,l); }
     if(t.id==='shot'&&t.files[0]) resizeImg(t.files[0]).then(d=>{ l.screenshot=d; saveLog(l); viewFinish(w,l); }); };
 }
 function resizeImg(file){ return new Promise(res=>{ const img=new Image(); img.onload=()=>{ const m=1080,sc=Math.min(1,m/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=img.width*sc;c.height=img.height*sc; c.getContext('2d').drawImage(img,0,0,c.width,c.height); res(c.toDataURL('image/jpeg',.7)); }; img.src=URL.createObjectURL(file); }); }
@@ -548,6 +586,50 @@ function viewWeek(){
 }
 
 /* ---------- Progressie ---------- */
+// type van een log-run: uit het plan (workout_id), anders uit het id-achtervoegsel
+function runTypeOf(l){ const w=byId(l.workout_id); if(w&&isRun(w))return w.type; if(/-z2$/.test(l.workout_id))return 'run_z2'; if(/-tempo$/.test(l.workout_id))return 'run_tempo'; return w?w.type:null; }
+// Aerobe efficiëntie (m per hartslag) = (afstand_m + 8 × hoogtemeters) / (duur_min × gem. HR)
+function aeroEff(r){ if(!r||!(+r.distance_km>0)||!(+r.duration_min>0)||!(+r.avg_hr>0))return null; return (r.distance_km*1000+8*(+r.elevation_m||0))/(r.duration_min*r.avg_hr); }
+const dec2=v=>v.toFixed(2).replace('.',',');
+const Z2_DEFAULT=120; // min/week als het plan geen Zone 2 voor die week bevat
+function z2Planned(wk){ return PLAN.filter(w=>w.type==='run_z2'&&isoWeek(w.date)===wk).reduce((a,w)=>a+(w.duration_min||(w.blocks||[]).flatMap(b=>b.items||[]).reduce((s,i)=>s+((itemDur(i)||0)/60),0)),0); }
+const parsePace=s=>{ const m=String(s).trim().match(/^(\d{1,2})[:.](\d{2})$/); return m?+m[1]*60+ +m[2]:null; };
+function runProgress(){ let h='';
+  const runs=allLogs().filter(l=>isMeaningful(l)&&l.status!=='overgeslagen'&&l.run&&(l.run.distance_km||l.run.duration_min)).sort((a,b)=>a.date.localeCompare(b.date));
+  if(!runs.length) return `<div class="card mu">Nog geen loopsessies met tijd of afstand.</div>`;
+  // a) aerobe efficiëntie, alleen Zone 2, trend over weken
+  const z2=runs.filter(l=>runTypeOf(l)==='run_z2');
+  const eff=z2.map(l=>({d:l.date,wk:isoWeek(l.date),v:aeroEff(l.run),r:l.run})).filter(x=>x.v!=null);
+  if(eff.length){ const byWk={}; eff.forEach(x=>{ const r=x.r,b=byWk[x.wk]??={m:0,s:0}; b.m+=r.distance_km*1000+8*(+r.elevation_m||0); b.s+=r.duration_min*r.avg_hr; });
+    const wks=Object.keys(byWk).sort().slice(-8), wv=wks.map(k=>byWk[k].m/byWk[k].s), last=eff[eff.length-1], prev=eff[eff.length-2];
+    const all=[...wv,...eff.filter(x=>wks.includes(x.wk)).map(x=>x.v)], lo=Math.min(...all)-0.02, hi=Math.max(...all)+0.02, W=300, H=96;
+    const X=i=>wks.length<2?W/2:12+i*(W-24)/(wks.length-1), Y=v=>H-8-(v-lo)/(hi-lo||1)*(H-16);
+    const dots=eff.filter(x=>wks.includes(x.wk)).map(x=>`<circle cx="${X(wks.indexOf(x.wk)).toFixed(1)}" cy="${Y(x.v).toFixed(1)}" r="3.5" class="pt"/>`).join('');
+    const dl=prev?Math.round((last.v-prev.v)*100)/100:0;
+    h+=`<div class="card chart"><div class="row"><div class="sp"><div class="lbl">Aerobe efficiëntie · Zone 2</div><div class="num" style="font-size:40px">${dec2(last.v)} <small class="mu" style="font-size:16px">m/slag</small></div></div>${prev?`<div class="${dl>0?'ok':'mu'}">${dl>0?'▲ +'+dec2(dl):dl<0?'▼ '+dec2(dl):'='}</div>`:''}</div>
+     <svg viewBox="0 0 ${W} ${H}" class="trend" role="img" aria-label="Trend aerobe efficiëntie per week"><polyline points="${wv.map((v,i)=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ')}" class="ln"/>${dots}${wv.map((v,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="5" class="wk"/>`).join('')}</svg>
+     <div class="axis">${wks.map(k=>`<span>wk ${+k.split('-W')[1]}</span>`).join('')}</div>
+     <div class="effl">${eff.slice(-4).reverse().map(x=>`<span><b>${dec2(x.v)}</b> ${+x.d.slice(8)}/${+x.d.slice(5,7)}</span>`).join('')}</div></div>`; }
+  // b) Zone 2-minuten per week met doellijn
+  const curWk=isoWeek(today()), wkSet=new Set([...z2.map(l=>isoWeek(l.date)),curWk]); const zw=[...wkSet].sort().slice(-6);
+  const zv=zw.map(k=>{ const act=z2.filter(l=>isoWeek(l.date)===k).reduce((a,l)=>a+(+l.run.duration_min||0),0), pl=z2Planned(k); return {k,act,goal:pl>0?Math.round(pl):Z2_DEFAULT,fromPlan:pl>0}; });
+  const zmx=Math.max(...zv.map(x=>Math.max(x.act,x.goal)))*1.1||1, zc=zv[zv.length-1];
+  h+=`<div class="card chart"><div class="row"><div class="sp"><div class="lbl">Zone 2 · deze week</div><div class="num" style="font-size:40px">${Math.round(zc.act)} <small class="mu" style="font-size:16px">/ ${zc.goal} min</small></div></div></div>
+   <div class="bars z2b">${zv.map((x,i)=>`<div class="col ${i===zv.length-1?'hi':''}"><b style="height:${Math.max(3,100*x.act/zmx)}%"></b><i class="goal" style="bottom:calc(${100*x.goal/zmx}% - 1px)" title="doel ${x.goal} min"></i></div>`).join('')}</div>
+   <div class="axis z2a">${zv.map(x=>`<span>wk ${+x.k.split('-W')[1]}</span>`).join('')}</div>
+   <div class="mu" style="font-size:12px;margin-top:6px">Lijn = doel ${zc.fromPlan?'uit het plan':'(standaard '+Z2_DEFAULT+' min/week)'}</div></div>`;
+  // c) tempo-intervallen apart: gemiddeld tempo per blok, alleen tegen eerdere tempo-sessies
+  const tp=runs.filter(l=>runTypeOf(l)==='run_tempo').map(l=>{ const bp=(l.run.block_paces||[]).filter(x=>+x>0), r=l.run;
+    return {d:l.date,blocks:bp.length,p:bp.length?bp.reduce((a,b)=>a+b,0)/bp.length:(r.distance_km&&r.duration_min?r.duration_min*60/r.distance_km:null)}; }).filter(x=>x.p);
+  if(tp.length){ const lt=tp[tp.length-1], earlier=tp.slice(0,-1), avgE=earlier.length?earlier.reduce((a,x)=>a+x.p,0)/earlier.length:null, dd=avgE?Math.round(avgE-lt.p):null;
+    h+=`<div class="card"><div class="row"><div class="sp"><div class="lbl">Tempo-intervallen</div><div class="num" style="font-size:40px">${fmt(lt.p)} <small class="mu" style="font-size:16px">/km ${lt.blocks?'per blok':'hele sessie'}</small></div></div>${dd!=null?`<div class="${dd>0?'ok':'mu'}">${dd>0?'▲ '+dd+' s sneller':dd<0?'▼ '+(-dd)+' s trager':'='}</div>`:''}</div>
+     <div class="mu" style="font-size:13px;margin-top:4px">${earlier.length?'Vergeleken met '+earlier.length+' eerdere tempo-sessie'+(earlier.length>1?'s':''):'Eerste tempo-sessie; vergelijking volgt na de volgende.'}${lt.blocks?'':' Vul bij afsluiten je bloktempo’s in voor tempo per blok.'}</div>
+     ${tp.length>1?`<div class="effl">${tp.slice(-4).reverse().map(x=>`<span><b>${fmt(x.p)}</b> ${+x.d.slice(8)}/${+x.d.slice(5,7)}</span>`).join('')}</div>`:''}</div>`; }
+  const m=today().slice(0,7), km=runs.filter(l=>l.date.startsWith(m)).reduce((a,l)=>a+(+l.run.distance_km||0),0), longest=Math.max(...runs.map(l=>+l.run.distance_km||0));
+  h+=`<div class="card exs"><div class="li"><span class="sp">Km deze maand</span><b class="num" style="font-size:22px">${String(Math.round(km*10)/10).replace('.',',')} km</b></div><div class="li"><span class="sp">Langste run</span><b class="num" style="font-size:22px">${String(longest).replace('.',',')} km</b></div><div class="li"><span class="sp">Sessies</span><b class="num" style="font-size:22px">${runs.length}</b></div></div>
+   <h2>Laatste loopsessies</h2><div class="card exs">${runs.slice(-8).reverse().map(l=>{const r=l.run,w=byId(l.workout_id);return `<div class="li"><span class="sp"><b>${+l.date.slice(8)}/${+l.date.slice(5,7)}</b> · ${esc(w?w.title:l.workout_id)}</span><span class="mu" style="font-size:14px">${r.distance_km!=null?esc(String(r.distance_km).replace('.',','))+' km':''}${r.duration_min!=null?' · '+Math.round(r.duration_min)+'′':''}${r.avg_hr?' · ♥ '+esc(r.avg_hr):''}</span></div>`}).join('')}</div>`;
+  return h; }
+
 function viewProg(k){ appHead('progressie'); k=k==='hardlopen'?'hardlopen':(k||LS.get('progTab','kracht')); LS.set('progTab',k);
   let h=`<div class="seg3" style="grid-template-columns:1fr 1fr;margin:8px 0 12px" data-noswipe><a class="btn ${k==='kracht'?'':'ghost'} sm" href="#progressie/kracht">Kracht</a><a class="btn ${k==='hardlopen'?'':'ghost'} sm" href="#progressie/hardlopen">Hardlopen</a></div>`;
   if(k==='kracht'){ const data={}, meta={};
@@ -560,15 +642,7 @@ function viewProg(k){ appHead('progressie'); k=k==='hardlopen'?'hardlopen':(k||L
       h+=`<div class="card"><div class="row"><div class="sp"><div class="lbl">${esc(e)}</div><div class="num" style="font-size:${ei?30:40}px">${two?'2×':''}${lastV} kg</div></div><div class="${delta>0?'ok':'mu'}">${delta>0?'▲ +'+Math.round(delta*10)/10+' kg':delta<0?'▼ '+Math.round(delta*10)/10+' kg':'='}</div></div>
        <div class="bars" style="height:${ei?70:110}px">${vals.map((v,i)=>`<div class="${i===vals.length-1?'hi':''}" style="height:${mx===mn?60:15+85*(v-mn)/(mx-mn)}%"></div>`).join('')}</div>
        <div class="axis">${wks.map(x=>`<span>wk ${+x.split('-W')[1]}</span>`).join('')}</div></div>`; });
-  } else { const runs=allLogs().filter(l=>isMeaningful(l)&&l.run&&(l.run.distance_km||l.run.duration_min)).sort((a,b)=>a.date.localeCompare(b.date));
-    if(!runs.length) h+=`<div class="card mu">Nog geen loopsessies met tijd of afstand.</div>`;
-    else { const pc=runs.filter(l=>l.run.distance_km&&l.run.duration_min).map(l=>({d:l.date,p:l.run.duration_min*60/l.run.distance_km}));
-      if(pc.length){ const last=pc.slice(-6), mx=Math.max(...last.map(x=>x.p)), mn=Math.min(...last.map(x=>x.p)), dl=Math.round(last[0].p-last[last.length-1].p);
-        h+=`<div class="card"><div class="row"><div class="sp"><div class="lbl">Tempo laatste loop</div><div class="num" style="font-size:40px">${fmt(last[last.length-1].p)} /km</div></div><div class="${dl>0?'ok':'mu'}">${dl>0?'▲ '+dl+' s sneller':dl<0?'▼ '+(-dl)+' s trager':'='}</div></div>
-        <div class="bars">${last.map((x,i)=>`<div class="${i===last.length-1?'hi':''}" style="height:${mx===mn?60:15+85*(mx-x.p)/(mx-mn)}%"></div>`).join('')}</div><div class="axis">${last.map(x=>`<span>${+x.d.slice(8)}/${+x.d.slice(5,7)}</span>`).join('')}</div></div>`; }
-      const m=today().slice(0,7), km=runs.filter(l=>l.date.startsWith(m)).reduce((a,l)=>a+(+l.run.distance_km||0),0), longest=Math.max(...runs.map(l=>+l.run.distance_km||0));
-      h+=`<div class="card exs"><div class="li"><span class="sp">Km deze maand</span><b class="num" style="font-size:22px">${String(Math.round(km*10)/10).replace('.',',')} km</b></div><div class="li"><span class="sp">Langste run</span><b class="num" style="font-size:22px">${String(longest).replace('.',',')} km</b></div><div class="li"><span class="sp">Sessies</span><b class="num" style="font-size:22px">${runs.length}</b></div></div>
-      <h2>Laatste loopsessies</h2><div class="card exs">${runs.slice(-8).reverse().map(l=>{const r=l.run,w=byId(l.workout_id);return `<div class="li"><span class="sp"><b>${+l.date.slice(8)}/${+l.date.slice(5,7)}</b> · ${esc(w?w.title:l.workout_id)}</span><span class="mu" style="font-size:14px">${r.distance_km!=null?esc(String(r.distance_km).replace('.',','))+' km':''}${r.duration_min!=null?' · '+Math.round(r.duration_min)+'′':''}${r.avg_hr?' · ♥ '+esc(r.avg_hr):''}</span></div>`}).join('')}</div>`; } }
+  } else h+=runProgress();
   app.innerHTML=h;
 }
 
@@ -699,19 +773,41 @@ async function diagnose(v){
 }
 
 
-/* ---------- swipe tussen tabs ---------- */
+/* ---------- swipe tussen tabs: interactief (volgende scherm schuift mee met de vinger) ---------- */
 const MAIN_TABS=['vandaag','morgen','week','progressie'];
-let sw0=null;
-app.addEventListener('touchstart',e=>{ if(e.touches.length!==1||ov.style.display==='block'){sw0=null;return;}
-  if(e.target.closest('input,textarea,select,.step,.itimer,.ex,.rpe,.fb,.seg3,.bars,[data-noswipe]')){sw0=null;return;}
-  const t=e.touches[0]; sw0={x:t.clientX,y:t.clientY,t:Date.now()}; },{passive:true});
-app.addEventListener('touchend',e=>{ if(!sw0)return; const t=e.changedTouches[0], dx=t.clientX-sw0.x, dy=t.clientY-sw0.y, dt=Date.now()-sw0.t; sw0=null;
-  if(Math.abs(dx)<70||Math.abs(dx)<2*Math.abs(dy)||dt>800)return; swipe(dx<0?1:-1); },{passive:true});
+const VIEWS={vandaag:()=>viewToday(),morgen:()=>viewMorgen(),week:()=>viewWeek(),progressie:()=>viewProg()};
+function curMain(){ const v=(location.hash.slice(1)||'vandaag').split('/')[0]; return MAIN_TABS.includes(v)?v:null; }
+// render een hoofdtab los van de pagina (voor het meeschuivende buurscherm); schrijft niets
+function renderOff(v){ const A=app, H=hd; app=document.createElement('main'); hd=document.createElement('header'); let html='';
+  try{ VIEWS[v](); html=app.innerHTML; }catch(e){} finally{ app=A; hd=H; } return html; }
+let sw0=null, D=null;
+app.addEventListener('touchstart',e=>{ if(D&&D.anim)return; if(e.touches.length!==1||ov.style.display==='block'||document.querySelector('.sheet,.pop')){sw0=null;return;}
+  if(e.target.closest('input,textarea,select,.step,.itimer,.ex,.rpe,.fb,.seg3,.bars,.chart,[data-noswipe]')){sw0=null;return;}
+  const t=e.touches[0]; sw0={x:t.clientX,y:t.clientY,t:Date.now(),lock:null,dx:0}; },{passive:true});
+app.addEventListener('touchmove',e=>{ if(!sw0)return; const t=e.touches[0], dx=t.clientX-sw0.x, dy=t.clientY-sw0.y;
+  if(!sw0.lock){ if(Math.abs(dx)<8&&Math.abs(dy)<8)return; sw0.lock=Math.abs(dx)>Math.abs(dy)*1.2?'h':'v'; if(sw0.lock==='h')dragStart(); }
+  if(sw0.lock!=='h')return; if(e.cancelable)e.preventDefault(); sw0.dx=dx; dragMove(dx); },{passive:false});
+app.addEventListener('touchend',()=>{ if(!sw0)return; const s=sw0; sw0=null; if(s.lock!=='h')return; dragEnd(s.dx,s.dx/Math.max(1,Date.now()-s.t)); },{passive:true});
+app.addEventListener('touchcancel',()=>{ if(sw0&&sw0.lock==='h')dragEnd(0,0); sw0=null; },{passive:true});
+function dragStart(){ const m=curMain(); D={main:m,i:MAIN_TABS.indexOf(m),W:innerWidth,ghost:null,target:null}; if(m) app.style.transition='none'; }
+function dragMove(dx){ if(!D||!D.main)return; const dir=dx<0?1:-1, target=MAIN_TABS[D.i+dir]||null;
+  if(!target){ app.style.transform=`translateX(${dx/3}px)`; if(D.ghost){D.ghost.remove();D.ghost=null;D.target=null;} return; }
+  if(target!==D.target){ if(D.ghost)D.ghost.remove(); const g=document.createElement('main'); g.className='swghost'; g.setAttribute('aria-hidden','true');
+    g.style.top=Math.max(0,hd.getBoundingClientRect().bottom)+'px'; g.innerHTML=renderOff(target); document.body.appendChild(g); D.ghost=g; D.target=target; D.dir=dir; }
+  app.style.transform=`translateX(${dx}px)`; D.ghost.style.transform=`translateX(${dx+D.dir*D.W}px)`; }
+function dragEnd(dx,v){ if(!D)return; if(!D.main){ D=null; if(Math.abs(dx)>=70) swipe(dx<0?1:-1); return; }
+  const go=D.target&&(Math.abs(dx)>D.W*0.28||(Math.abs(v)>0.45&&Math.abs(dx)>30)), tr='transform .22s cubic-bezier(.2,.8,.2,1)'; D.anim=true;
+  app.style.transition=tr; if(D.ghost)D.ghost.style.transition=tr;
+  requestAnimationFrame(()=>{ if(!D)return;
+    if(go){ app.style.transform=`translateX(${-D.dir*D.W}px)`; D.ghost.style.transform='translateX(0)'; }
+    else { app.style.transform='translateX(0)'; if(D.ghost)D.ghost.style.transform=`translateX(${D.dir*D.W}px)`; } });
+  setTimeout(()=>{ if(!D)return; if(go){ D.commit=true; location.hash='#'+D.target; setTimeout(swCleanup,400); } else swCleanup(); },240); }
+function swCleanup(){ if(!D)return; if(D.ghost)D.ghost.remove(); app.style.transition='none'; app.style.transform=''; D=null; requestAnimationFrame(()=>{ app.style.transition=''; }); }
 function swipe(dir){
   const h=location.hash.slice(1)||'vandaag', [v,arg,tab]=h.split('/');
-  if(v==='w'){ const w=byId(arg); if(!w||isRun(w)||tab==='klaar'||tab==='samenvatting')return; const T=tabsOf(w).map(t=>t.key);
-    let i=T.indexOf(tab); if(i<0){ const btn=hd.querySelector('.tabs .on'); i=btn?T.indexOf(btn.dataset.tab):0; }
-    const j=i+dir; if(j<0||j>=T.length)return; location.replace('#w/'+w.id+'/'+T[j]); return; }
+  if(v==='w'||v==='voorbeeld'){ const w=byId(arg); if(!w||w.type==='rest'||isRun(w)||tab==='klaar'||tab==='samenvatting')return; const T=tabsOf(w).map(t=>t.key);
+    let i=T.indexOf(tab); if(i<0){ const btn=hd.querySelector('.tabs .on'); i=btn?T.indexOf(btn.dataset.tab||btn.dataset.ptab):0; }
+    const j=i+dir; if(j<0||j>=T.length)return; location.replace('#'+v+'/'+w.id+'/'+T[j]); return; }
   const i=MAIN_TABS.indexOf(v==='reeks'?'vandaag':v); if(i<0)return; const j=i+dir; if(j<0||j>=MAIN_TABS.length)return; location.hash='#'+MAIN_TABS[j];
 }
 /* ---------- versie / updates ---------- */
