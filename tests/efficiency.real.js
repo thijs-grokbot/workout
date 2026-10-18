@@ -1,10 +1,10 @@
 // v14.3: aerobe efficiëntie op de ECHTE logs (alleen lokaal; data staat in private/, gaat niet in de repo).
-// Formule: (afstand_m + 8 × elevation_m) / (duur_min × avg_hr). Mike's controlewaarden: 12/10 = 0,85 · 15/10 = 0,91 · 18/10 = 0,94.
+// Formule: (afstand_m + 8 × elevation_m) / (duur_min × avg_hr). Runs < 20 min tellen niet mee. Controlewaarden (v14.3.1): 12/10 = 0,91 · 15/10 = 0,91 · 18/10 = 0,93; 11/10 (8 min) valt weg.
 const pw=require(process.env.PW||'/workspace/mkb-websites/tools/node_modules/playwright');const assert=require('assert');const fs=require('fs');
 const U=process.argv[2]||'http://localhost:8765/', PRIV=__dirname+'/../private/';
 if(!fs.existsSync(PRIV+'logs-real.json')){console.log('efficiëntie-test overgeslagen (geen private/logs-real.json)');process.exit(0);}
 const LOGS=JSON.parse(fs.readFileSync(PRIV+'logs-real.json')).logs, W=JSON.parse(fs.readFileSync(PRIV+'plan-real.json')).workouts;
-const EXPECT={'2026-10-12':0.85,'2026-10-15':0.91,'2026-10-18':0.94};
+const EXPECT={'2026-10-12':0.91,'2026-10-15':0.91,'2026-10-18':0.93};
 (async()=>{const b=await pw.webkit.launch();const c=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,serviceWorkers:'block'});const posted=[];
 await c.addInitScript(()=>{const D=Date;const off=new D('2026-10-18T13:00:00+02:00').getTime()-D.now();window.Date=class extends D{constructor(...a){super(...(a.length?a:[D.now()+off]))}static now(){return D.now()+off}};});
 await c.route(/script\.google\.com/,r=>{const q=r.request();if(q.method()==='POST')posted.push(1);const a=new URL(q.url()).searchParams.get('action');r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify(a==='logs'?{ok:true,logs:LOGS}:{ok:true,workouts:W})})});
@@ -20,5 +20,7 @@ for(const d of Object.keys(EXPECT)) assert.ok(rows.find(r=>r.d===d),'log '+d+' o
 const card=await p.innerText('.chart');assert.match(card,/Aerobe efficiëntie/i);assert.match(card,/m\/slag/i);
 assert.strictEqual(posted.length,0,'test schreef iets');
 await p.screenshot({path:__dirname+'/shots/v143-progressie-hardlopen-echt.png',fullPage:true});
-if(dev.length){ console.log('AFWIJKING t.o.v. controlewaarden (niet afgerond om te laten kloppen):\n  '+dev.join('\n  ')); } else console.log('alle controlewaarden kloppen');
+assert.deepStrictEqual(dev,[],'controlewaarden wijken af');
+const r11=rows.find(r=>r.d==='2026-10-11');assert.ok(r11&&r11.eff===null,'11/10 (8 min) telt nog mee');
+assert.ok(!/11\/10/.test(card),'11/10 staat nog in de grafiek');console.log('alle controlewaarden kloppen; 11/10 valt weg');
 console.log('efficiëntie-test OK (formule)');await b.close();})().catch(e=>{console.error('FAIL',e.message);process.exit(1)});

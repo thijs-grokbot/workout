@@ -1,4 +1,4 @@
-const VERSION='v14.3';const C='workout-'+VERSION;
+const VERSION='v14.3.1';const C='workout-'+VERSION;
 const FILES=['./','index.html','app.js','duration.js','voice.js','aftrap.js','fonts/barlow-condensed-latin-800-normal.woff2','fonts/barlow-condensed-latin-800-italic.woff2','fonts/inter-latin-400-normal.woff2','fonts/inter-latin-600-normal.woff2','fonts/inter-latin-700-normal.woff2','fonts/inter-latin-800-normal.woff2','style.css','config.js','manifest.json','workouts.json','icons/icon-192.png','icons/apple-touch-icon.png'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.addAll(FILES.map(f=>new Request(f,{cache:'reload'})))))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});

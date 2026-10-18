@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v14.3', APP_BUILD='volgas';
+const APP_VERSION='v14.3.1', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -591,7 +591,8 @@ function viewWeek(){
 // type van een log-run: uit het plan (workout_id), anders uit het id-achtervoegsel
 function runTypeOf(l){ const w=byId(l.workout_id); if(w&&isRun(w))return w.type; if(/-z2$/.test(l.workout_id))return 'run_z2'; if(/-tempo$/.test(l.workout_id))return 'run_tempo'; return w?w.type:null; }
 // Aerobe efficiëntie (m per hartslag) = (afstand_m + 8 × hoogtemeters) / (duur_min × gem. HR)
-function aeroEff(r){ if(!r||!(+r.distance_km>0)||!(+r.duration_min>0)||!(+r.avg_hr>0))return null; return (r.distance_km*1000+8*(+r.elevation_m||0))/(r.duration_min*r.avg_hr); }
+const EFF_MIN_DUR=20; // runs korter dan 20 min tellen niet mee in de efficiëntietrend
+function aeroEff(r){ if(!r||!(+r.distance_km>0)||!(+r.duration_min>=EFF_MIN_DUR)||!(+r.avg_hr>0))return null; return (r.distance_km*1000+8*(+r.elevation_m||0))/(r.duration_min*r.avg_hr); }
 const dec2=v=>v.toFixed(2).replace('.',',');
 const Z2_DEFAULT=120; // min/week als het plan geen Zone 2 voor die week bevat
 function z2Planned(wk){ return PLAN.filter(w=>w.type==='run_z2'&&isoWeek(w.date)===wk).reduce((a,w)=>a+(w.duration_min||(w.blocks||[]).flatMap(b=>b.items||[]).reduce((s,i)=>s+((itemDur(i)||0)/60),0)),0); }

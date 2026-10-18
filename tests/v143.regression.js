@@ -54,6 +54,12 @@ await c.close();
 assert.strictEqual(await p.$$eval('main .exs .li',x=>x.filter(e=>/^\S$/.test(e.innerText.split('\n')[0].trim())).length),0,'feedback per letter');
 assert.match(await p.innerText('main'),/Z2 lekker gelopen/);
 await c.close();
+// efficiëntietrend: runs < 20 min vallen weg (v14.3.1)
+({c,p}=await ctx(b,'2026-10-16',[...BASE,L('2026-10-16-x-z2','2026-10-16','gedaan',{duration_min:8,distance_km:1.2,avg_hr:151})],posted));
+await p.evaluate(()=>location.hash='#progressie/hardlopen');await p.waitForTimeout(400);
+const ef=await p.innerText('main .chart');assert.ok(!/16\/10/.test(ef),'korte run in efficiëntietrend');assert.match(ef,/15\/10/);
+assert.strictEqual(await p.evaluate(()=>aeroEff({duration_min:19.9,distance_km:3,avg_hr:140})),null);assert.ok(await p.evaluate(()=>aeroEff({duration_min:20,distance_km:3,avg_hr:140})>0));
+await c.close();
 // ---------- rustdag op Morgen (vandaag do 15/10, morgen = rust)
 ({c,p}=await ctx(b,'2026-10-15',BASE.slice(0,5),posted));
 await p.evaluate(()=>location.hash='#morgen');await p.waitForTimeout(300);
