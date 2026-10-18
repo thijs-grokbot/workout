@@ -49,6 +49,11 @@ await c.close();
 ({c,p}=await ctx(b,'2026-10-16',BASE.slice(0,5),posted));
 assert.match(await p.innerText('.streak .h'),/^1 dag$/i,'gemist brak streak niet');
 await c.close();
+// feedback als tekst (zoals Mike logt) mag niet per letter getoond worden
+({c,p}=await ctx(b,'2026-10-14',[...BASE.slice(0,4),Object.assign(L('2026-10-14-kracht-a','2026-10-14','gedaan'),{feedback:'Z2 lekker gelopen'})],posted));
+assert.strictEqual(await p.$$eval('main .exs .li',x=>x.filter(e=>/^\S$/.test(e.innerText.split('\n')[0].trim())).length),0,'feedback per letter');
+assert.match(await p.innerText('main'),/Z2 lekker gelopen/);
+await c.close();
 // ---------- rustdag op Morgen (vandaag do 15/10, morgen = rust)
 ({c,p}=await ctx(b,'2026-10-15',BASE.slice(0,5),posted));
 await p.evaluate(()=>location.hash='#morgen');await p.waitForTimeout(300);

@@ -348,9 +348,11 @@ function summaryBody(w,onToday){
   const pace=ru.duration_min&&ru.distance_km?fmt(ru.duration_min*60/ru.distance_km):'–';
   let h=`<div class="card hero"><div class="lbl">${esc(w.title)} · gedaan ✓</div><div class="big" style="margin-top:6px;font-size:40px">${run?(ru.distance_km!=null?esc(String(ru.distance_km).replace('.',','))+' km':'Gelopen'):(mins?mins+' min':'Gedaan')}${l.rpe!=null?' · RPE '+esc(l.rpe):''}</div>
    <div class="row" style="margin-top:12px">${run?stat(mins!=null?fmt(mins*60):'–','tijd')+stat(pace,'/km')+stat(ru.avg_hr??'–','gem. HR'):stat(msd.length+'/'+ms.length,'sets')+stat(kg?Math.round(kg).toLocaleString('nl-NL'):'–','kg totaal')+stat(w.rounds||1,'rondes')}</div></div>`;
-  const fb=Object.entries(l.feedback||{});
+  const fbo=l.feedback&&typeof l.feedback==='object'&&!Array.isArray(l.feedback)?l.feedback:{}, fbs=typeof l.feedback==='string'?l.feedback.trim():'';
+  const fb=Object.entries(fbo).filter(([,v])=>typeof v==='string');
   if(fb.length) h+=`<div class="card exs">${fb.map(([e,v])=>`<div class="li" style="min-height:52px"><span class="sp">${esc(e)}</span><b style="color:${v==='goed'?'var(--ok)':'var(--ac)'}">${esc(cap(v))}</b></div>`).join('')}</div>`;
   if(run&&ru.max_hr) h+=`<div class="card exs"><div class="li" style="min-height:52px"><span class="sp">Max. hartslag</span><b>${esc(ru.max_hr)}</b></div></div>`;
+  if(fbs&&fbs!==String(l.notes||'').trim()) h+=`<div class="note">${esc(fbs)}</div>`;
   if(l.notes) h+=`<div class="note">${esc(l.notes)}</div>`;
   if(onToday) h+=`<a class="btn ghost sm" href="#w/${esc(w.id)}">Workout bekijken</a>`;
   const n=PLAN.find(x=>x.date>w.date); if(n) h+=morgenLink(n);
