@@ -17,7 +17,7 @@ function viewAftrap(step){
   const chips=(list,sel,key)=>`<div class="ch2">${list.map(c=>`<button class="${(Array.isArray(sel)?sel.includes(c):sel===c)?'on':''}" data-c="${esc(c)}" data-k="${key}">${esc(c)}</button>`).join('')}</div>`;
   const said=t=>t?`<div class="card" style="margin-top:14px;font-size:17px"><div class="lbl" style="margin-bottom:6px">Jij zei</div>“${esc(t)}”</div>`:'';
   const ob=(n,q,body,{opt=false,mic=false,btn='Volgende',sub=''}={})=>{
-    app.innerHTML=`<div class="ob"><div class="obtop">${BRAND.replace('href="#vandaag"','href="#aftrap/0"')}<div class="row" style="gap:10px"><span class="lbl">Aftrap ${n}/8</span>${opt?'<button class="btn ghost sm" id="skip" style="width:120px">Overslaan</button>':''}</div></div>
+    app.innerHTML=`<div class="ob"><div class="obtop">${BRAND.replace('href="#vandaag"','href="#aftrap/0"')}<div class="row" style="gap:10px">${opt?'<button class="btn ghost sm" id="skip" style="width:120px">Overslaan</button>':''}</div></div>
       <div class="pd">${Array.from({length:8},(_,i)=>`<span class="${i+1===n?'on':i+1<n?'dn':''}"></span>`).join('')}</div>${sub?`<div class="lbl" style="margin-top:18px">${sub}</div>`:''}<div class="q">${q}</div>${body}</div>
       ${mic?`<div class="bmh" id="bmh">Tik een keuze of vertel het gewoon</div><button class="bigmic" id="bigmic" aria-label="Inspreken">${MIC}</button>`:''}`;
     setBar(`<button class="btn" id="next">${btn}</button>`); };
@@ -26,18 +26,18 @@ function viewAftrap(step){
      <div class="q" style="font-size:52px">Aftrap</div><div style="font-size:19px;line-height:1.4;color:#E6E6EA">Acht korte vragen. Daarna zet je persoonlijke trainer je sportschema voor je klaar.</div><div class="mu" style="margin-top:18px">± 2 minuten</div>
      ${LS.get('aftrapDone',0)?'<a class="btn ghost sm" href="#vandaag" style="margin-top:28px">Terug naar de app</a>':''}</div>`;
     setBar(`<button class="btn" id="next">Begin de aftrap</button>`); bar.querySelector('#next').onclick=()=>go(1); return; }
-  if(s==='1') ob(1,'Hoe heet je trainer?',`<div class="mu" style="margin-bottom:12px">Je persoonlijke trainer kijkt mee, stuurt bij en zet je trainingen klaar.</div>${chips([...AF.trainers,'Zelf verzinnen ✎'],AF.trainers.includes(tn)?tn:'Zelf verzinnen ✎','trainer')}`);
+  if(s==='1') ob(1,'Hoe heet je trainer?',`<div class="mu" style="margin-bottom:12px">Je persoonlijke trainer kijkt mee, stuurt bij en zet je trainingen klaar.</div>${chips([...AF.trainers,'Zelf ✎'],AF.trainers.includes(tn)?tn:'Zelf ✎','trainer')}`);
   else if(s==='1b') ob(1,'Hoe heet je trainer?',`<div class="mu" style="margin-bottom:12px">Verzin zelf een naam.</div><input class="namein" id="tname" maxlength="24" autocomplete="off" autocapitalize="words" enterkeyhint="done" value="${esc(AF.trainers.includes(tn)?'':tn)}" placeholder="Naam van je trainer" autofocus>`);
   else if(s==='2') ob(2,'Wat wil je bereiken?','<div class="mu" style="margin-bottom:12px">Kies er één of meer.</div>'+chips(AF.doelen,a.doelen,'doelen')+said(a.doelen_transcript),{mic:true});
   else if(s==='3') ob(3,'Hoe vaak per week?',chips(AF.freq,a.frequentie,'frequentie')+`<div class="mu" style="margin-top:14px">${esc(tn)} verdeelt kracht en hardlopen over je week.</div>`);
   else if(s==='4'){ const e=a.event||{}, has=e.type&&!/^Nee/.test(e.type); const dt=e.datum||ymd(new Date(Date.now()+150*864e5)); const D=new Date(dt+'T12:00'), wks=Math.max(0,Math.round((D-new Date())/6048e5));
     ob(4,'Train je ergens naartoe?',chips(AF.events,e.type,'event')+(has?`<div class="step" style="margin-top:12px"><button data-m="-1" aria-label="maand eerder">−</button><b class="v">${MAAND[D.getMonth()]} ${D.getFullYear()}</b><button data-m="1" aria-label="maand later">+</button></div>
       <div class="step" style="margin-top:10px"><button data-dt="-5" aria-label="doeltijd sneller">−</button><b class="v">Doel ${esc(e.doeltijd||'1:10')}</b><button data-dt="5" aria-label="doeltijd langzamer">+</button></div>
-      <div class="card hl" style="margin-top:10px"><b>${esc(e.type)} · ${esc(MAAND[D.getMonth()])} ${D.getFullYear()}</b><div class="mu" style="font-size:14px">Doel ${esc(e.doeltijd||'1:10')} · nog ${wks} weken</div></div>`:'')+said(e.transcript),{mic:true}); }
-  else if(s==='5') ob(5,'Vertel kort iets over jezelf',chips(AF.over,a.over_jou.chips,'over')+said(a.over_jou.transcript)+`<div class="mu" style="margin-top:12px">Optioneel · alleen jij en ${esc(tn)} zien dit.</div>`,{opt:true,mic:true,sub:'Optioneel'});
-  else if(s==='6') ob(6,'Wat weeg je ongeveer?',`<div class="step" style="height:72px;margin-top:10px"><button data-kg="-1" style="width:72px;height:72px;font-size:30px" aria-label="minder">−</button><b class="v" style="font-size:36px">${a.gewicht_kg?a.gewicht_kg+' kg':'– kg'}</b><button data-kg="1" style="width:72px;height:72px;font-size:30px" aria-label="meer">+</button></div><div class="mu" style="margin-top:12px">Optioneel · helpt ${esc(tn)} met gewichten kiezen.</div>`,{opt:true,sub:'Optioneel'});
-  else if(s==='7') ob(7,'Doelen met voeding?',chips(AF.voeding,a.voeding,'voeding')+'<div class="mu" style="margin-top:12px">Optioneel.</div>',{opt:true,sub:'Optioneel'});
-  else if(s==='8') ob(8,`Nog iets wat ${esc(tn)} moet weten?`,'<div class="mu" style="margin-bottom:12px">Blessures, werkrooster, materiaal thuis…</div>'+chips(AF.overig,a.overig.chips,'overig')+said(a.overig.transcript),{opt:true,mic:true,btn:'Klaar',sub:'Optioneel'});
+      <div class="mu" style="margin-top:10px;text-align:center">nog ${wks} weken</div>`:'')+said(e.transcript),{mic:true}); }
+  else if(s==='5') ob(5,'Vertel kort iets over jezelf',chips(AF.over,a.over_jou.chips,'over')+said(a.over_jou.transcript)+`<div class="mu" style="margin-top:12px">Alleen jij en ${esc(tn)} zien dit.</div>`,{opt:true,mic:true});
+  else if(s==='6') ob(6,'Wat weeg je ongeveer?',`<div class="step" style="height:72px;margin-top:10px"><button data-kg="-1" style="width:72px;height:72px;font-size:30px" aria-label="minder">−</button><b class="v" style="font-size:36px">${a.gewicht_kg?a.gewicht_kg+' kg':'– kg'}</b><button data-kg="1" style="width:72px;height:72px;font-size:30px" aria-label="meer">+</button></div><div class="mu" style="margin-top:12px">Helpt ${esc(tn)} met gewichten kiezen.</div>`,{opt:true});
+  else if(s==='7') ob(7,'Doelen met voeding?',chips(AF.voeding,a.voeding,'voeding'),{opt:true});
+  else if(s==='8') ob(8,`Nog iets wat ${esc(tn)} moet weten?`,'<div class="mu" style="margin-bottom:12px">Blessures, werkrooster, materiaal thuis…</div>'+chips(AF.overig,a.overig.chips,'overig')+said(a.overig.transcript),{opt:true,mic:true,btn:'Klaar'});
   else if(s==='9') return aftrapKlaar(a);
   const n=s==='1b'?1:+s, next=()=>{ if(s==='1b'){ const v=(app.querySelector('#tname').value||'').trim(); if(!v){ app.querySelector('#tname').focus(); return; } a.trainer_name=v.slice(0,24); afSet(a); } go(n+1); };
   bar.querySelector('#next').onclick=next;
@@ -73,7 +73,9 @@ async function afMic(s,a){ const mb=app.querySelector('#bigmic'), hint=app.query
   catch(e){ console.warn('mic',e); hint.textContent='Microfoon niet beschikbaar. Tik gewoon je keuze.'; }
 }
 function aftrapKlaar(a){ const tn=a.trainer_name||'Mike';
-  const items=[['✓',a.doelen.length?'Doel: '+a.doelen.join(', ')+(a.event&&a.event.type&&!/^Nee/.test(a.event.type)?' · '+a.event.type+(a.event.doeltijd?' '+a.event.doeltijd:''):''):'Doel: fit blijven'],['✓',(a.frequentie||'?')+' per week'],['…','Startgewichten kiezen']];
+  const ev=a.event&&a.event.type&&!/^Nee/.test(a.event.type)?a.event.type+(a.event.doeltijd?' '+a.event.doeltijd:''):'', evT=ev&&a.event.type.toLowerCase();
+  const dl=[ev,...a.doelen.filter(d=>!evT||d.toLowerCase()!==evT).map((d,i)=>ev||i?d.toLowerCase():d)].filter(Boolean); // v15 audit: doel en event ontdubbelen
+  const items=[['✓',dl.length?dl.join(' · '):'Doel: fit blijven'],['✓',(a.frequentie||'?')+' per week'],['…','Startgewichten kiezen']];
   app.innerHTML=`<div class="ob" style="padding-top:calc(var(--sat) + 110px);text-align:center"><div class="av" style="width:96px;height:96px;font-size:34px;margin:0 auto 22px;box-shadow:0 0 0 10px rgba(255,107,26,.2)">${esc(initials(tn))}</div>
    <div class="q" style="font-size:44px">${esc(tn)} stelt je<br>eerste week samen</div><div class="ring" style="height:10px;margin:22px 30px"><i id="afp" style="width:10%;transition:width 2.4s"></i></div>
    <div class="card" style="text-align:left;margin-top:10px">${items.map(([x,t])=>`<div class="li" style="min-height:52px"><span class="ok" style="width:24px">${x}</span><span>${esc(t)}</span></div>`).join('')}</div></div>`;

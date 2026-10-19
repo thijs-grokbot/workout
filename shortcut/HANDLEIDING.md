@@ -2,7 +2,7 @@
 
 Stuurt elke ochtend je HRV (vannacht/vanochtend) en de rusthartslag van vandaag naar je trainer.
 De opdracht is veilig om vaker te draaien: dezelfde meting wordt niet dubbel opgeslagen. Zonder data wordt niets opgeslagen.
-Benodigd: je exec-URL en je token uit 'Koppeling instructies (privé)'. Plak die alleen in de opdracht, nergens anders.
+Benodigd: je exec-URL en een sleutel. Vanaf v15 (Code.gs generic-4): maak in de app via Profiel → Koppeling (Instellingen) → **Sleutel voor de iOS-Opdracht** een eigen gezondheidssleutel. Die mag alleen gezondheidsdata versturen. Zonder accounts (of met een oudere Code.gs) werkt je token uit 'Koppeling instructies (privé)' nog steeds. Plak de sleutel alleen in de opdracht, nergens anders.
 
 1. Open **Opdrachten** › tab **Opdrachten** › **+**. Noem de opdracht `VOLGAS Gezondheid`.
 2. Voeg **Zoek gezondheidsmonsters** toe. Zet *Type* op **Hartslagvariabiliteit** en voeg het filter **Startdatum · is vandaag** toe.
@@ -11,7 +11,7 @@ Benodigd: je exec-URL en je token uit 'Koppeling instructies (privé)'. Plak die
 5. Voeg nog een **Zoek gezondheidsmonsters** toe: *Type* **Hartslag in rust**, **Startdatum · is vandaag**, *Sorteer op* **Startdatum**, **Nieuwste eerst**, *Beperk* **1**. Zet daaronder **Haal details van gezondheidsmonsters op** met **Waarde**.
 6. Voeg **Haal inhoud van URL op** toe en vul je exec-URL in. Tik op **Toon meer** en kies *Methode* **POST**, *Verzoekhoofdtekst* **JSON**. Voeg deze tekstvelden toe:
    - `action` = `health`
-   - `token` = je token
+   - `token` = je gezondheidssleutel (v15) of je token
    - `hrv_ms` = de gecombineerde tekst uit stap 3
    - `hrv_ts` = de gecombineerde tekst uit stap 4
    - `resting_hr` = de details uit stap 5

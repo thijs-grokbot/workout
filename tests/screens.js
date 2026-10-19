@@ -29,7 +29,7 @@ await p.goto(U);await p.evaluate(([A,T])=>{localStorage.clear();localStorage.cfg
 assert.match(await p.evaluate(()=>location.hash),/aftrap/,'aftrap niet getoond');
 await shot('01-aftrap-welkom'); await p.click('#next'); await shot('02-aftrap-1-trainer');
 assert.strictEqual(await p.$('#bigmic'),null,'mic op 02');
-await p.click('text=Zelf verzinnen ✎'); await p.fill('#tname','Mike'); await shot('02b-aftrap-1b-trainer-zelf'); await p.click('#next');
+await p.click('text=Zelf ✎'); await p.fill('#tname','Mike'); await shot('02b-aftrap-1b-trainer-zelf'); await p.click('#next');
 await p.click('button[data-c="HYROX"]'); await p.click('button[data-c="Sneller lopen"]'); assert.ok(await p.$('#bigmic'),'mic op 03'); await shot('03-aftrap-2-doelen'); await p.click('#next');
 await p.click('button[data-c="4×"]'); await shot('04-aftrap-3-frequentie'); await p.click('#next');
 await p.click('button[data-c="HYROX"]'); await shot('05-aftrap-4-evenement'); await p.click('#next');

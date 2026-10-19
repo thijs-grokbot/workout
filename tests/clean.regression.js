@@ -13,14 +13,15 @@ const al=await p.evaluate(()=>{const h=document.querySelector('.streak .h').getB
 assert.ok(al<=2,'Vonk niet uitgelijnd: '+al);
 // ketting onderaan Vandaag, 7 schakels, laatste blok vóór versie
 assert.strictEqual(await p.$$eval('main .chain .lk',x=>x.length),7);
-assert.ok(await p.evaluate(()=>{const ch=document.querySelector('main .chain');return ch.nextElementSibling&&ch.nextElementSibling.classList.contains('ver');}),'ketting niet onderaan');
+assert.ok(await p.evaluate(()=>{const ch=document.querySelector('main .chain'), rc=ch.closest('.reeks');return rc&&rc===document.querySelector('main').lastElementChild&&document.querySelectorAll('main .streak').length===1&&!document.querySelector('main .ver');}),'v15: reeks niet één keer onderaan (kaart met ketting) of versie nog op Vandaag');
 assert.ok(await p.$('.chain .lk.ok'),'geen gesloten schakel voor gedane dag');
 await p.screenshot({path:__dirname+'/shots/v142-vandaag.png',fullPage:true});
 // Week
 await p.evaluate(()=>location.hash='#week');await p.waitForTimeout(400);
 assert.strictEqual(await p.$$eval('main .chain .lk',x=>x.length),7,'geen ketting op Week');
 const hd=await p.evaluate(()=>{const h=document.querySelector('.wkhd h1').getBoundingClientRect(),l=document.querySelector('.wkhd .lbl').getBoundingClientRect();return {same:l.top<h.bottom&&l.bottom>h.top,right:Math.round(innerWidth-l.right)};});
-assert.ok(hd.same,'datum niet op titelregel');assert.ok(hd.right<=24,'datum niet rechts');
+assert.ok(hd.same,'datum niet op titelregel');
+const nav=await p.evaluate(()=>[...document.querySelectorAll('.wkhd .wnav')].map(b=>[b.textContent.trim(),Math.round(b.getBoundingClientRect().height)]));assert.deepStrictEqual(nav,[['‹',56],['›',56]],'v15: ‹ › 56 px in de kopregel, geen Nu in de huidige week');
 assert.strictEqual(await p.$$eval('main .wl .mu[style]',x=>x.length),0,'subregels nog aanwezig');
 const fit=await p.evaluate(()=>{const r=[...document.querySelectorAll('main .wl')].pop().getBoundingClientRect();return r.bottom<=innerHeight;});
 assert.ok(fit,'week past niet op één scherm');

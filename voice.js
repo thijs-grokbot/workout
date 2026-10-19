@@ -7,7 +7,7 @@ const Voice=(()=>{
   const b64=blob=>new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(blob); });
   const nowStamp=()=>{ const d=new Date(); return ymd(d)+'_'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds()); };
   const aiOn=()=>!!LS.get('aiOn',false);
-  async function ping(){ if(!syncOn())return; try{ const j=await api('GET',{action:'ping'},null,CFG,1); if(j&&j.ok){ LS.set('aiOn',!!j.ai); if(j.trainer)LS.set('trainerFromPing',j.trainer); LS.set('pingVersion',j.version||''); } }catch(e){} }
+  async function ping(){ if(!syncOn())return; try{ const j=await api('GET',{action:'ping'},null,CFG,1); if(j&&j.ok){ LS.set('aiOn',!!j.ai); if(j.trainer)LS.set('trainerFromPing',j.trainer); LS.set('pingVersion',j.version||''); ACC.onPing(j); } }catch(e){} }
 
   /* recorder: start() -> {stop():Promise<{blob,mime,sec}>, cancel(), level():0..1} */
   async function start(onTick,onAuto){
@@ -59,7 +59,7 @@ const Voice=(()=>{
     finally{ fab.classList.remove('busy'); } }
   async function toInbox(a,data,w,note){ const base='inbox/'+nowStamp(), ext=extOf(a.mime);
     const j=await api('POST',null,{action:'writefile',path:base+'.'+ext,content:data,encoding:'base64'}); if(!j||!j.ok)throw new Error((j&&j.error)||'upload mislukt');
-    await api('POST',null,{action:'writefile',path:base+'.json',content:{type:'stem',at:new Date().toISOString(),audio:base.split('/')[1]+'.'+ext,mime:a.mime,seconds:Math.round(a.sec),screen:location.hash,workout_id:w&&w.id,date:today(),profile_id:PROFILE().id,note:note||''}}); }
+    await api('POST',null,{action:'writefile',path:base+'.json',content:{type:'stem',account:(ACC.active()||{}).id||null,at:new Date().toISOString(),audio:base.split('/')[1]+'.'+ext,mime:a.mime,seconds:Math.round(a.sec),screen:location.hash,workout_id:w&&w.id,date:today(),profile_id:PROFILE().id,note:note||''}}); }
   function contextFor(w){ const f=new Date(); f.setDate(f.getDate()-14); const fs=ymd(f);
     const recent=allLogs().filter(l=>l.date>=fs&&isMeaningful(l)).map(l=>{ const m={...l}; delete m.screenshot; return m; }).slice(-12);
     const wk=weekOf(w.date); return {recent_logs:recent,week:PLAN.filter(x=>wk.includes(x.date)),today_log:(()=>{const l=LS.get(logKey(w.id));if(!l)return null;const m={...l};delete m.screenshot;return m;})(),profile:PROFILE().aftrap||null}; }
@@ -72,7 +72,7 @@ const Voice=(()=>{
     const d=diffWorkouts(w,j.workout);
     const rows=[...d.verwijderd.map(x=>`<li><span class="tag t-del">WEG</span>${esc(x)}</li>`),...d.gewijzigd.map(x=>`<li><span class="tag t-chg">ANDERS</span>${esc(x.exercise)}: <s class="mu">${esc(x.voor)}</s> → <b>${esc(x.na)}</b></li>`),...d.toegevoegd.map(x=>`<li><span class="tag t-add">NIEUW</span>${esc(x.exercise)} ${esc(x.na)}</li>`)];
     if(!rows.length){ bar(`<div class="m a">${who(name)}${esc(j.message||'Er verandert niets.')}</div><div class="ch"><button class="y" data-v="close">Oké</button></div>`); return; }
-    const el=bar(`<div class="m old">“${esc(j.transcript||'')}”</div><div class="m a">${who(name)}${esc(j.message||'Zo aanpassen?')}</div><ul class="diff">${rows.join('')}</ul><div class="ch"><button data-v="no">Nee</button><button class="y" data-v="yes">Akkoord</button></div>`);
+    const el=bar(`<div class="m old">“${esc(j.transcript||'')}”</div><div class="m a">${who(name)}Zo aanpassen?</div><ul class="diff">${rows.join('')}</ul><div class="ch"><button data-v="no">Nee</button><button class="y" data-v="yes">Akkoord</button></div>`);
     el.dataset.pending='1'; pending={w:j.workout,transcript:j.transcript,diff:d};
   }
   let pending=null;

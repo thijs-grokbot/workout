@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v14.4', APP_BUILD='volgas';
+const APP_VERSION='v15', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -9,6 +9,7 @@ const syncOn=()=>!!(CFG.API_URL&&CFG.TOKEN);
 
 const clean=v=>String(v||'').replace(/[\u200B-\u200D\uFEFF\s]+/g,'').replace(/\\_/g,'_');
 CFG.API_URL=clean(CFG.API_URL).replace(/[.,;]+$/,''); CFG.TOKEN=clean(CFG.TOKEN);
+ACC.init(); // v15: actief account (sessietoken) gaat voor de oude koppeling
 /* ---------- Magic link: #k=<token>&u=<base64url exec-URL, optioneel> ---------- */
 function b64urlDecode(x){ try{ x=String(x).replace(/-/g,'+').replace(/_/g,'/'); while(x.length%4)x+='='; return decodeURIComponent(escape(atob(x))); }catch(e){ return ''; } }
 function parseLink(text){ // accepteert de hele link, alleen de hash, of "k=…&u=…"
@@ -32,7 +33,7 @@ function jsonpUrl(params,cfg){ return cfg.API_URL+'?'+new URLSearchParams({...pa
 let lastTransport='', apiChain=Promise.resolve();
 // Apps Script geeft soms (vooral bij gelijktijdige requests/koude start) een 404-HTML-pagina zonder CORS terug.
 // Daarom: requests één voor één, 3 pogingen met pauze, daarna JSONP.
-function api(method,params,body,cfg=CFG,tries=3){ const run=()=>apiX(method,params,body,cfg,tries); const p=apiChain.then(run,run); apiChain=p.catch(()=>{}); return p; }
+function api(method,params,body,cfg=CFG,tries=3){ const run=()=>apiX(method,params,body,cfg,tries); const p=apiChain.then(run,run).then(j=>{ if(j&&j.error==='unauthorized'&&cfg===CFG&&ACC.mode()==='account')ACC.onUnauthorized(); return j; }); apiChain=p.catch(()=>{}); return p; }
 async function apiX(method,params,body,cfg,tries){
   let last;
   for(let i=0;i<tries;i++){
@@ -121,7 +122,7 @@ function isMeaningful(l){ if(!l)return false; if(REAL_STATUS.includes(l.status))
   if(l.rpe!=null&&l.rpe!=='')return true; if(String(l.notes||'').trim()||String(l.skipped_reason||'').trim())return true;
   if(Object.values(l.run||{}).some(v=>v!=null&&v!==''))return true; if(Object.keys(l.feedback||{}).length||l.screenshot||l.amrap_rounds||(l.adjustments||[]).length)return true; return false; }
 function logTs(l){ if(!l)return ''; let t=l.updated_at||l.synced_at||l.finished_at||''; if(!t)(l.sets||[]).forEach(s=>{ if(s.ts&&s.ts>t)t=s.ts; }); return String(t); }
-function saveLog(l,sync=true){ l.updated_at=new Date().toISOString(); if(!l.profile_id)l.profile_id=(LS.get('profile',{}).id||'thijs'); const q=new Set(LS.get('queue',[]));
+function saveLog(l,sync=true){ l.updated_at=new Date().toISOString(); if(!l.profile_id)l.profile_id=(LS.get('profile',{}).id||'thijs'); const ac=ACC.active(); if(ac)l.account=ac.id; const q=new Set(LS.get('queue',[]));
   if(!isMeaningful(l)){ localStorage.removeItem(logKey(l.workout_id)); q.delete(l.workout_id); LS.set('queue',[...q]); syncLabel(); return; }
   LS.set(logKey(l.workout_id),l);
   if(sync){ q.add(l.workout_id); LS.set('queue',[...q]); flush(); } }
@@ -195,9 +196,8 @@ const TRAINER=()=>PROFILE().trainer_name||LS.get('trainerFromPing','')||CFG.TRAI
 const initials=n=>String(n||'?').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join('');
 const avatar=()=>`<button class="av" id="avbtn" aria-label="Profiel en instellingen">${esc(initials(PROFILE().name))}<i class="${syncOn()?'on':''}"></i></button>`;
 function appHead(active){ const T=[['vandaag','Vandaag'],['morgen','Morgen'],['week','Week'],['progressie','Progressie']];
-  hd.innerHTML=`<div class="top">${BRAND}${avatar()}</div><nav class="tabs">${T.map(([k,l])=>`<a href="#${k}" class="${k===active?'on':''}">${l}</a>`).join('')}</nav>
-  <div class="dots">${T.map(([k])=>`<span class="${k===active?'on':''}"></span>`).join('')}</div>`; }
-function subHead(lbl,title,back='#vandaag'){ hd.innerHTML=`<div class="top"><a class="back" href="${back}" aria-label="Terug">‹</a><div class="tt"><div class="lbl">${esc(lbl)}</div><b class="h">${esc(title)}</b></div>${avatar()}</div>`; }
+  hd.innerHTML=`<div class="top">${BRAND}${avatar()}</div><nav class="tabs">${T.map(([k,l])=>`<a href="#${k}" class="${k===active?'on':''}">${l}</a>`).join('')}</nav>`; }
+function subHead(lbl,title,back='#vandaag'){ hd.innerHTML=`<div class="top"><a class="back" href="${back}" aria-label="Terug">‹</a><div class="tt"><b class="h">${esc(title)}</b>${lbl?`<div class="sub">${esc(lbl)}</div>`:''}</div>${avatar()}</div>`; }
 hd.addEventListener('click',e=>{ if(e.target.closest('#avbtn')) openProfile(); });
 
 /* ---------- rust (één blok, tijdstempels) ---------- */
@@ -217,12 +217,12 @@ function drawTimer(){ const saved=LS.get('rest',null); if(saved)R=saved; if(!R)r
   if(R.min){ ov.style.display='none'; mini.style.display='flex'; mini.innerHTML=`<span class="ml">Rust</span><b>${fmt(Math.ceil(left))}</b><span class="mn">${esc(R.next||'')}</span><i style="width:${Math.min(100,100*(1-left/R.dur))}%"></i>`; return; }
   mini.style.display='none'; ov.style.display='block'; ov.classList.toggle('fin',done);
   const pct=Math.min(100,100*(1-left/R.dur));
-  ov.innerHTML=`<div style="padding-top:var(--sat)"><div class="top"><button class="back" data-t="min" aria-label="Rust verkleinen">‹</button><div class="tt"><div class="lbl">${esc(R.label||'Rust')}</div><b class="h">${done?'Rust voorbij':'Rust'}</b></div></div></div>
-   <main><div class="card" style="padding:22px 16px"><div class="lbl" style="text-align:center">Rust volgens ${esc(TRAINER())}'s plan · ${fmt(R.plan||R.dur)}</div>
+  ov.innerHTML=`<div style="padding-top:var(--sat)"><div class="top"><button class="back" data-t="min" aria-label="Rust verkleinen">‹</button><div class="tt"><b class="h">${done?'Rust voorbij':'Rust'}</b>${R.label?`<div class="mu" style="font-size:14px">${esc(String(R.label).split(' · ')[0])}</div>`:''}</div></div></div>
+   <main><div class="card" style="padding:22px 16px"><div class="lbl" style="text-align:center">Plan ${fmt(R.plan||R.dur)}</div>
    <div class="big3">${done?'GO!':fmt(Math.ceil(left))}</div><div class="ring" style="margin:6px 6px 18px"><i style="width:${pct}%"></i></div>
    <div class="adj">${[-30,-15,15,30].map(s=>`<button data-t="${s}">${s<0?'−':'+'}${Math.abs(s)}</button>`).join('')}</div></div>
    ${R.next?`<h2>Straks</h2><div class="card"><b style="font-size:18px">${esc(R.next)}</b></div>`:''}</main>
-   <div class="foot" style="position:fixed"><button class="btn" data-t="stop" id="skiprest">Skip rust · ${esc(/^ronde/i.test(R.next||'')?'volgende ronde':'verder')} →</button></div>
+   <div class="foot" style="position:fixed"><button class="btn" data-t="stop" id="skiprest">Verder</button></div>
    ${done?`<div class="scrim" style="z-index:21"></div><div class="pop restpop" role="dialog" style="z-index:22"><b class="h" style="font-size:26px;display:block;margin-bottom:6px">${restQ()}</b><div class="mu" style="margin-bottom:16px">${esc(R.next||'')}</div><button class="btn" data-t="stop" id="akkoord">Akkoord</button></div>`:''}`; }
 ov.addEventListener('click',e=>{ const b=e.target.closest('[data-t]'); if(!b||!R)return; const t=b.dataset.t;
   if(t==='stop')return stopRest();
@@ -247,16 +247,16 @@ function streak(){ const logs=allLogs().filter(isMeaningful); if(!logs.length)re
     if(s==='done'||s==='rest'||s==='free'){ n++; continue; }
     if(s==='open'||s==='future')continue; n=0; }
   return n; }
-function streakCard(){ const n=streak(), T=tierOf(n);
-  return `<a class="card streak ${T[4]}" href="#reeks"><span class="em">${T[3]}</span><span class="sp shl"><b class="h">${n} ${n===1?'dag':'dagen'}</b><span class="nt">${T[0].toUpperCase()}</span></span><span class="mu" style="font-size:22px">›</span></a>`; }
-function viewStreak(){ const n=streak(), cur=tierOf(n); subHead(n+' '+(n===1?'dag':'dagen')+' op schema','Je reeks');
+function streakCard(t){ const n=streak(), T=tierOf(n);
+  return `<div class="card streak reeks ${T[4]}"><a class="rh" href="#reeks" aria-label="Je reeks: ${n} ${n===1?'dag':'dagen'} ${T[0]}"><span class="em">${T[3]}</span><span class="sp shl"><b class="h">${n} ${n===1?'dag':'dagen'}</b><span class="nt">${T[0]}</span></span><span class="mu" style="font-size:22px">›</span></a>${chainStrip(t,true)}</div>`; }
+function viewStreak(){ const n=streak(), cur=tierOf(n); subHead('','Je reeks');
   app.innerHTML=`
   ${TIERS.map(T=>`<div class="card tier ${T[4]} ${T===cur?'cur':''}"><span class="em">${T[3]}</span><div class="sp"><b class="h">${T[0]}</b><div class="mu" style="font-size:15px">${T[2]>1e6?T[1]+'+ dagen':T[1]+'–'+T[2]+' dagen'}</div></div>${T===cur?`<span class="n">${n}</span>`:''}</div>`).join('')}
   <h2>Mijlpalen</h2><div class="miles">${[7,21,50,100].map(m=>`<div class="${n>=m||LS.get('mile',0)>=m?'got':''}"><span>🏅</span>${m}</div>`).join('')}</div>
-  <p class="mu" style="margin-top:14px;font-size:14px">Elke gedane training telt, ook als die afwijkt van het plan. Geplande rustdagen tellen mee. Overslaan of missen breekt je reeks.</p>`; }
+  <p class="mu" style="margin-top:14px;font-size:14px">Rustdagen tellen mee. Een gemiste geplande training breekt je reeks.</p>`; }
 function checkMilestone(){ const n=streak(), m=[100,50,21,7].find(x=>n>=x); if(!m||LS.get('mile',0)>=m)return; LS.set('mile',m); celebrate(m); }
 function celebrate(m){ const d=document.createElement('div'); d.className='celebrate'; const T=tierOf(m);
-  d.innerHTML=`<div class="em">${T[3]}</div><div class="q">${m} dagen!</div><div style="font-size:17px">Je bent nu <b style="color:var(--ac)">${T[0]}</b>. 🏅 Badge ${m}</div><div class="mu" style="font-size:15px;margin-top:10px">${esc(TRAINER())}: “Sterk volgehouden, zo blijven gaan.”</div><button class="btn">Door met trainen</button>`;
+  d.innerHTML=`<div class="em">${T[3]}</div><div class="q">${m} dagen!</div><div style="font-size:17px">Je bent nu <b style="color:var(--ac)">${T[0]}</b> 🏅</div><div class="mu" style="font-size:15px;margin-top:10px">${esc(TRAINER())}: “Sterk volgehouden, zo blijven gaan.”</div><button class="btn">Door met trainen</button>`;
   if(!matchMedia('(prefers-reduced-motion:reduce)').matches) for(let i=0;i<40;i++){ const c=document.createElement('i'); c.className='confetti'; c.style.left=Math.random()*100+'%'; c.style.background=['#FF6B1A','#fff','#FFB020','#E5484D'][i%4]; c.style.animationDelay=Math.random()*.6+'s'; d.appendChild(c); }
   d.onclick=e=>{ if(e.target.closest('button'))d.remove(); }; document.body.appendChild(d); setTimeout(()=>d.querySelectorAll('.confetti').forEach(c=>c.remove()),2600); }
 
@@ -264,7 +264,8 @@ function celebrate(m){ const d=document.createElement('div'); d.className='celeb
 function route(){
   const h=location.hash.slice(1)||'vandaag', [v,arg,tab]=h.split('/');
   clearInterval(runT); clearInterval(itemT); app.onclick=null; app.onchange=null; bar.onclick=null; hd.onclick=null; setBar(''); closeSheet();
-  document.body.classList.toggle('onb',v==='aftrap');
+  document.body.classList.toggle('onb',v==='aftrap'); document.body.classList.toggle('auth',ACC.isAuthView(v));
+  if(ACC.gate(v)){ Voice.after('aftrap'); return; }
   if(v!=='aftrap'&&!LS.get('aftrapDone',0)&&!/instellingen/.test(v)){ location.replace('#aftrap/0'); return; }
   if(v==='aftrap')return viewAftrap(arg||'0');
   if(v==='instellingen'){ viewSettings(); return Voice.after(v); }
@@ -304,16 +305,26 @@ function restCard(w){ const it=(w.blocks||[]).flatMap(b=>b.items||[]);
   return `<div class="card restday"><span class="em">🛌</span><b class="h">Rustdag</b><div class="mu">Herstel hoort bij je schema.</div>
    ${it.length?`<div class="rl2">${it.map(i=>`<div class="li"><span class="sp">${esc(i.exercise)}</span><span class="mu">${esc(i.reps||'')}</span></div>`).join('')}</div>`:''}
    ${it.length?`<a class="rlink" href="#w/${esc(w.id)}/b0">Herstel bijhouden ›</a>`:''}</div>`; }
+// v15 audit: korte titels op één regel en hero-titel = naam van de workout; details als chips
+const ivTxt=w=>w.intervals&&w.intervals.reps?`${w.intervals.reps}× ${w.intervals.work_min||''} min`:'';
+function shortTitle(w){ const d=durOf(w), t=String(w.title||'');
+  if(w.type==='rest')return 'Rust'; if(w.type==='run_z2')return 'Zone 2'+(d?' · '+d+' min':'');
+  if(w.type==='run_tempo')return 'Tempo-intervallen'+(w.intervals&&w.intervals.reps?' '+w.intervals.reps+'×'+(w.intervals.work_min||''):'');
+  if(w.type==='home'||/^thuis-backup/i.test(t))return t.replace(/^thuis-backup\s*/i,'Thuis · ').replace(/ · $/,'')||'Thuis';
+  return t; }
+function heroTitle(w){ const t=String(w.title||''); if(w.type==='run_z2')return 'Zone 2'; if(w.type==='run_tempo')return 'Tempo-intervallen'; if(w.type==='home'||/^thuis-backup/i.test(t))return 'Thuis'; return t; }
+const tipsOf=w=>(w.tips||[]).filter(x=>!/^\s*\d+\s*rondes?\b/i.test(x)||!/rust/i.test(x)); // "2 rondes, 2–3 min rust" staat al in de chips/tabs
 const pvLink=w=>w.type==='rest'?'':`<a class="card row pvlink" href="#voorbeeld/${esc(w.id)}"><span class="sp"><b>Bekijk de hele workout</b></span><span class="mu" style="font-size:22px">›</span></a>`;
 function heroCard(w,ey,view){ if(w.type==='rest')return restCard(w); const d=durOf(w), n=(w.blocks||[]).filter(isMain).reduce((a,b)=>a+b.items.length,0), st=statusOf(w);
-  const big=isRun(w)?(w.type==='run_tempo'&&w.intervals?`${w.intervals.reps}×${w.intervals.work_min||''} min<br>tempo`:`${d||''} min<br>Zone 2`):w.type==='rest'?'Rustdag':`${w.rounds>1?w.rounds+' rondes':'1 ronde'}<br>${n} oefeningen`;
-  return `<div class="card hero"><div class="lbl">${esc(w.title)}</div><div class="big" style="margin-top:6px">${big}</div>
-   <div class="chips">${st==='deels'?'<span class="chip">Deels gedaan</span>':''}${st==='overgeslagen'?'<span class="chip">Overgeslagen</span>':''}${d?`<span class="chip">± ${d} min</span>`:''}${w.rest_sec?`<span class="chip">Rust ${fmt(w.rest_sec)}</span>`:''}${w.hr_target?`<span class="chip">HR ${esc(w.hr_target)}</span>`:''}</div>
+  const home=w.type==='home'||/^thuis-backup/i.test(w.title||''), amr=w.amrap_min?`${w.amrap_min} min AMRAP`:'', rest=String(w.title||'').replace(/^thuis-backup\s*/i,'');
+  const C=[st==='deels'?'Deels gedaan':'',st==='overgeslagen'?'Overgeslagen':'',w.type==='run_tempo'?ivTxt(w):'',home?(amr||rest):'',!isRun(w)&&!home&&n?(w.rounds>1?w.rounds+' rondes':'1 ronde'):'',!isRun(w)&&!home&&n?n+' oefeningen':'',d?'± '+d+' min':'',w.rest_sec?'Rust '+fmt(w.rest_sec):''].filter(Boolean);
+  return `<div class="card hero"><div class="big">${esc(heroTitle(w))}</div>
+   <div class="chips">${[...new Set(C)].map(c=>`<span class="chip">${esc(c)}</span>`).join('')}</div>
    ${view?`<a class="btn" href="#voorbeeld/${esc(w.id)}" id="view">Bekijk workout</a>`:`<a class="btn" href="#w/${esc(w.id)}" id="start">${st?'▶ Verder met training':'▶ Start training'}</a>`}</div>`; }
 const tomorrow=()=>{ const d=new Date(today()+'T12:00'); d.setDate(d.getDate()+1); return ymd(d); };
 // Korte deep-link naar de Morgen-tab (geen volle kaart meer onder Vandaag)
 function morgenLink(n){ if(!n)return ''; const d=durOf(n), tom=n.date===tomorrow();
-  return `<a class="card morgen row" href="#morgen" style="margin-top:12px"><span class="ic">${isRun(n)?'🏃':n.type==='rest'?'🛌':'🏋️'}</span><span class="sp"><b style="font-size:18px">${tom?'Morgen':'Volgende'}</b><div class="mu" style="font-size:14px">${esc(n.title)}${d?' · ± '+d+' min':''}</div></span><span class="mu" style="font-size:22px">›</span></a>`; }
+  return `<a class="card morgen row" href="${tom?'#morgen':n.type==='rest'?'#w/'+esc(n.id):'#voorbeeld/'+esc(n.id)}" style="margin-top:12px"><span class="ic">${isRun(n)?'🏃':n.type==='rest'?'🛌':'🏋️'}</span><span class="sp"><div class="lbl">${tom?'Morgen':'Volgende · '+esc(longDate(n.date))}</div><b style="font-size:18px">${esc(shortTitle(n))}</b></span><span class="mu" style="font-size:22px">›</span></a>`; }
 
 /* ---------- Vandaag ---------- */
 function viewToday(){
@@ -322,15 +333,15 @@ function viewToday(){
   if(!PLAN.length){ app.innerHTML=unl+`<div class="lbl">${esc(longDate(t))}</div><h1>Nog geen plan</h1><p class="mu">Er is nog geen workout geladen.</p>`; return; }
   const todays=PLAN.filter(w=>w.date===t); let w=todays[0], ey=longDate(t);
   if(!w){ w=PLAN.find(x=>x.date>t); if(w) ey='Eerstvolgende · '+longDate(w.date); }
-  let h=unl+streakCard()+`<div class="lbl" style="margin-bottom:10px">${esc(cap(ey))} · week ${wkNo(t)}${offlineTag()}</div>`;
+  let h=unl+`<div class="lbl" style="margin-bottom:10px">${esc(cap(ey))} · week ${wkNo(t)}${offlineTag()}</div>`;
   if(!w) h+=`<h1>Niets gepland</h1>`;
   else if(w.date===t&&statusOf(w)==='gedaan') h+=summaryBody(w,true);
-  else { h+=heroCard(w,ey)+pvLink(w); if((w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
-    if(todays.length>1) h+='<h2>Ook vandaag</h2>'+todays.slice(1).map(x=>`<a class="card wl" href="#w/${esc(x.id)}"><span class="sp"><b>${esc(x.title)}</b></span>${stBadge(x)}</a>`).join(''); }
-  if(!(w&&w.date===t&&statusOf(w)==='gedaan')) h+=morgenLink(PLAN.find(x=>x.date>t));
+  else { h+=heroCard(w,ey)+pvLink(w); if(tipsOf(w).length) h+=`<div class="note">${tipsOf(w).map(esc).join(' · ')}</div>`;
+    if(todays.length>1) h+='<h2>Ook vandaag</h2>'+todays.slice(1).map(x=>`<a class="card wl" href="#w/${esc(x.id)}"><span class="sp"><b>${esc(shortTitle(x))}</b></span>${stBadge(x)}</a>`).join(''); }
+  // v15 audit: geen Morgen-kaart (tab ernaast), geen vaste trainersregel (alleen bij nieuws), geen versie (staat in het profiel), reeks één keer onderaan
   const lastAdj=Object.values(LS.get('overrides',{})).filter(o=>o.workout.date>=t).sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0];
-  h+=mikeline(lastAdj?esc(TRAINER())+' heeft je training aangepast op jouw wens':esc(TRAINER())+' kijkt mee en zet je trainingen klaar');
-  app.innerHTML=h+`<h2>Reeks</h2>${chainStrip(t,true)}<div class="ver">${VLABEL}</div>`; scrollChain();
+  if(lastAdj) h+=mikeline(esc(TRAINER())+' heeft je training aangepast op jouw wens');
+  app.innerHTML=h+streakCard(t); scrollChain();
   const st=app.querySelector('#start'); if(st) st.onclick=()=>{unlockAudio();LS.set('training',1);wake();};
 }
 /* ---------- Morgen ---------- */
@@ -345,8 +356,8 @@ function viewMorgen(){
     if(next) h+=morgenLink(next);
   } else {
     h+=heroCard(w,longDate(t),true);
-    if((w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
-    if(tomorrows.length>1) h+='<h2>Ook morgen</h2>'+tomorrows.slice(1).map(x=>`<a class="card wl" href="#${x.type==='rest'?'w':'voorbeeld'}/${esc(x.id)}"><span class="sp"><b>${esc(x.title)}</b></span>${stBadge(x)}</a>`).join('');
+    if(tipsOf(w).length) h+=`<div class="note">${tipsOf(w).map(esc).join(' · ')}</div>`;
+    if(tomorrows.length>1) h+='<h2>Ook morgen</h2>'+tomorrows.slice(1).map(x=>`<a class="card wl" href="#${x.type==='rest'?'w':'voorbeeld'}/${esc(x.id)}"><span class="sp"><b>${esc(shortTitle(x))}</b></span>${stBadge(x)}</a>`).join('');
   }
   app.innerHTML=h;
 }
@@ -357,16 +368,16 @@ function summaryBody(w,onToday){
   const kg=msd.reduce((a,s)=>{ const v=+s.load_done||0, r=num(s.reps_done)||0, m=/2×/.test(s.load_unit||'')?2:1; return a+v*r*m; },0);
   const stat=(a,b)=>`<div class="stat"><div class="num">${a}</div><div class="s">${b}</div></div>`;
   const pace=ru.duration_min&&ru.distance_km?fmt(ru.duration_min*60/ru.distance_km):'–';
-  let h=`<div class="card hero"><div class="lbl">${esc(w.title)} · gedaan ✓</div><div class="big" style="margin-top:6px;font-size:40px">${run?(ru.distance_km!=null?esc(String(ru.distance_km).replace('.',','))+' km':'Gelopen'):(mins?mins+' min':'Gedaan')}${l.rpe!=null?' · RPE '+esc(l.rpe):''}</div>
-   <div class="row" style="margin-top:12px">${run?stat(mins!=null?fmt(mins*60):'–','tijd')+stat(pace,'/km')+stat(ru.avg_hr??'–','gem. HR'):stat(msd.length+'/'+ms.length,'sets')+stat(kg?Math.round(kg).toLocaleString('nl-NL'):'–','kg totaal')+stat(w.rounds||1,'rondes')}</div></div>`;
+  const bigTxt=run?(ru.distance_km!=null?esc(String(ru.distance_km).replace('.',','))+' km':'Gelopen')+(l.rpe!=null?' · RPE '+esc(l.rpe):''):[mins?mins+' min':'',l.rpe!=null?'RPE '+esc(l.rpe):''].filter(Boolean).join(' · ')||'Gedaan';
+  let h=`<div class="card hero">${onToday?`<div class="lbl">${esc(shortTitle(w))} · gedaan ✓</div>`:''}<div class="big" style="${onToday?'margin-top:6px;':''}font-size:40px">${bigTxt}</div>
+   <div class="row" style="margin-top:12px">${run?stat(mins!=null?fmt(mins*60):'–','tijd')+stat(pace,'/km')+stat(ru.avg_hr??'–','gem. HR')+(ru.max_hr?stat(esc(ru.max_hr),'max. HR'):''):stat(msd.length+'/'+ms.length,'sets')+stat(kg?Math.round(kg).toLocaleString('nl-NL'):'–','kg totaal')+stat(w.rounds||1,'rondes')}</div></div>`;
   const fbo=l.feedback&&typeof l.feedback==='object'&&!Array.isArray(l.feedback)?l.feedback:{}, fbs=typeof l.feedback==='string'?l.feedback.trim():'';
   const fb=Object.entries(fbo).filter(([,v])=>typeof v==='string');
   if(fb.length) h+=`<div class="card exs">${fb.map(([e,v])=>`<div class="li" style="min-height:52px"><span class="sp">${esc(e)}</span><b style="color:${v==='goed'?'var(--ok)':'var(--ac)'}">${esc(cap(v))}</b></div>`).join('')}</div>`;
-  if(run&&ru.max_hr) h+=`<div class="card exs"><div class="li" style="min-height:52px"><span class="sp">Max. hartslag</span><b>${esc(ru.max_hr)}</b></div></div>`;
   if(fbs&&fbs!==String(l.notes||'').trim()) h+=`<div class="note">${esc(fbs)}</div>`;
   if(l.notes) h+=`<div class="note">${esc(l.notes)}</div>`;
   if(onToday) h+=`<a class="btn ghost sm" href="#w/${esc(w.id)}">Workout bekijken</a>`;
-  const n=PLAN.find(x=>x.date>w.date); if(n) h+=morgenLink(n);
+  const n=!onToday&&PLAN.find(x=>x.date>w.date); if(n) h+=morgenLink(n);
   return h; }
 
 /* ---------- Rustdag ---------- */
@@ -377,11 +388,11 @@ function viewPreview(w,tab){
   if(!w){ subHead('','Niet gevonden'); app.innerHTML='<h1>Workout niet gevonden</h1>'; return; }
   if(w.type==='rest') return viewRestDay(w);
   const back=w.date===tomorrow()?'#morgen':'#vandaag'; let h='';
-  if(isRun(w)){ subHead('Voorvertoning',w.title,back); const P=phasesOf(w), d=durOf(w);
+  if(isRun(w)){ subHead('Voorvertoning',heroTitle(w),back); const P=phasesOf(w), d=durOf(w);
     h+=`<div class="card"><div class="row" style="gap:18px">${d?`<div><div class="lbl">Duur</div><div class="num" style="font-size:30px">± ${d} min</div></div>`:''}${w.hr_target?`<div><div class="lbl">Doel-HR</div><div class="num" style="font-size:30px">${esc(w.hr_target)}</div></div>`:''}</div></div>
      <div class="card exs pv">${P.map(q=>`<div class="li"><span class="sp"><b>${esc(q.name)}</b>${q.hint?`<div class="sub">${esc(q.hint)}</div>`:''}</span><span class="mu">${fmt(q.sec)}</span></div>`).join('')}</div>`;
   } else { const T=tabsOf(w); let ti=Math.max(0,T.findIndex(t=>t.key===tab)); const cur=T[ti], main=cur&&isMain(cur.block), R=w.rounds||1;
-    subHead('Voorvertoning · '+w.title, cur?(main&&R>1?'Ronde '+cur.round+' van '+R:cur.label):w.title, back);
+    subHead('Voorvertoning', w.title, back);
     if(T.length>1) hd.insertAdjacentHTML('beforeend',`<div class="tabs" data-noswipe>${T.map((t,i)=>`<button class="${i===ti?'on':''}" data-ptab="${t.key}">${esc(t.label)}</button>`).join('')}</div>`);
     if(cur) h+=`<div class="card exs pv">${cur.block.items.map(it=>{ const u=it.load_unit||'kg', u2=u.replace(/\s*kg$/,'').trim();
       const load=it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':it.load_default!=null?(u2?u2+' ':'')+it.load_default+' kg':'';
@@ -412,7 +423,7 @@ function viewWorkout(w,tab){
   let ti=Math.max(0,T.findIndex(t=>t.key===tab)); if(!tab){ const first=T.findIndex(t=>isMain(t.block)); const open=T.findIndex(t=>l.sets.some(s=>s.block===t.block.name&&s.round===t.round&&!s.done)); ti=open>=0?open:(first>=0?first:0); }
   const cur=T[ti]; const go=k=>location.replace('#w/'+w.id+'/'+k);
   const main=cur&&isMain(cur.block), R=w.rounds||1;
-  subHead(w.title, cur?(main&&R>1?'Ronde '+cur.round+' van '+R:cur.label):w.title);
+  subHead('', w.title); // v15 audit: sectie staat in de tab
   if(T.length>1) hd.insertAdjacentHTML('beforeend',`<div class="tabs" data-noswipe>${T.map((t,i)=>`<button class="${i===ti?'on':''}" data-tab="${t.key}">${esc(t.label)}</button>`).join('')}</div>`);
   const sets=cur?cur.block.items.map(it=>({it,k:l.sets.findIndex(s=>s.block===cur.block.name&&sameEx(s.exercise,it.exercise)&&s.round===cur.round)})).filter(x=>x.k>=0):[];
   const firstOpen=sets.find(x=>!l.sets[x.k].done);
@@ -422,19 +433,20 @@ function viewWorkout(w,tab){
   sets.forEach(({it,k})=>{ const s=l.sets[k]; const hasLoad=it.load_range||it.load_default!=null; const def=itemDur(it);
     const unit=it.load_unit||'kg', u2=unit.replace(/\s*kg$/,'').trim();
     const loadTxt=hasLoad?((u2?u2+'':'')+(s.load_done!=null?s.load_done:'')+' kg'):'';
-    const sub=def?(LS.get(itKey(w,k))&&LS.get(itKey(w,k)).start?'Tijd-item · loopt':'Tik ▶ om te starten'):[it.reps?(main&&s.reps_done?s.reps_done:it.reps)+(/^\d+$/.test(String(main&&s.reps_done?s.reps_done:it.reps))?' reps':''):'',loadTxt||(it.load_range?it.load_range.join('–')+' kg':'')].filter(Boolean).join(' · ');
+    const sub=def?(LS.get(itKey(w,k))&&LS.get(itKey(w,k)).start?'Loopt':''):[it.reps?(main&&s.reps_done?s.reps_done:it.reps)+(/^\d+$/.test(String(main&&s.reps_done?s.reps_done:it.reps))?' reps':''):'',loadTxt||(it.load_range?it.load_range.join('–')+' kg':'')].filter(Boolean).join(' · ');
     h+=`<div class="ex ${s.done?'done':''} ${firstOpen&&firstOpen.k===k?'active':''}" data-ex="${esc(it.exercise)}" data-k="${k}"><div class="x" data-del="${esc(it.exercise)}">✕<small>Verwijder</small></div><div class="mv">`;
     if(def&&!s.done){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false};
       h+=`<div class="tim itimer" data-it="${k}"><button class="play ${x.run?'pause':''}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button><div class="sp" data-chk="${k}"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(sub)}</div></div>
        <button class="clock itl" data-iset="${k}" aria-label="tijd wijzigen">${fmt(Math.ceil(x.left))}</button>${st&&st.start?`<button class="rs" data-ir="${k}" aria-label="reset">↺</button>`:''}</div>`; }
-    else h+=`<div class="exr" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc((it.reps?'Doel '+it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'')+(it.load_range?' · '+(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?' · '+loadTxt:''))}</div>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
+    else h+=`<div class="exr" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc([it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'',it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?loadTxt:''].filter(Boolean).join(' · '))}</div>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
     if(main&&!def&&firstOpen&&firstOpen.k===k){ const rn=num(s.reps_done), pv=prevLoad(w,it.exercise);
       h+=`<div class="steps">${hasLoad?`<div class="step"><button data-w="${k}" data-d="-1" aria-label="minder gewicht" ${+s.load_done<=0?'disabled':''}>−</button><button class="v" data-wt="${k}">${esc(u2?u2:'')}${s.load_done??'–'} kg</button><button data-w="${k}" data-d="1" aria-label="meer gewicht">+</button></div>`:''}
        <div class="step" ${hasLoad?'':'style="grid-column:1/-1"'}><button data-r="${k}" data-d="-1" aria-label="minder reps" ${rn==null||rn<=0?'disabled':''}>−</button><button class="v" data-reps="${k}">${esc(s.reps_done||'–')}</button><button data-r="${k}" data-d="1" aria-label="meer reps" ${rn==null?'disabled':''}>+</button></div></div>${pv&&hasLoad?`<div class="prev">Vorige keer ${pv.v} kg</div>`:''}`; }
     h+='</div></div>'; });
   h+='</div>';
-  if(sets.length) h+='<div class="hint">⟵ Swipe naar links om te verwijderen</div>';
-  if(main&&(w.tips||[]).length) h+=`<div class="note">${w.tips.map(esc).join(' · ')}</div>`;
+  if(sets.length&&!localStorage.getItem('swipeHint')){ localStorage.setItem('swipeHint','1'); sessionStorage.setItem('swipeHintS','1'); } // alleen de eerste sessie
+  const showHint=sets.length&&sessionStorage.getItem('swipeHintS'); if(showHint) h+='<div class="hint">⟵ Swipe naar links om te verwijderen</div>';
+  if(main&&tipsOf(w).length) h+=`<div class="note">${tipsOf(w).map(esc).join(' · ')}</div>`;
   h+=`<button class="btn red sm" id="reset" style="margin-top:16px">Reset deze workout</button>`;
   app.innerHTML=h;
   const restS=w.rest_sec||90, last=ti>=T.length-1;
@@ -550,7 +562,7 @@ function viewFinish(w,l){
   const ms=l.sets.filter(s=>(w.blocks||[]).some(b=>isMain(b)&&b.name===s.block)), msd=ms.filter(s=>s.done);
   if(!l.status&&msd.length) l.status=msd.length===ms.length?'gedaan':'deels';
   const mins=l.started_at?Math.round((Date.now()-new Date(l.started_at))/6e4):null;
-  subHead(run?w.title:w.title+(mins&&mins<300?' · '+mins+' min':'')+(ms.length?' · '+msd.length+'/'+ms.length+' sets':''),'Afsluiten','#w/'+w.id);
+  subHead(heroTitle(w),'Afsluiten','#w/'+w.id);
   const need=l.status==='deels'||l.status==='overgeslagen';
   const mc=(lbl,key,mode,val)=>`<label class="card mcard"><div class="lbl">${lbl}</div><input inputmode="${mode}" data-run="${key}" value="${esc(val??'')}" placeholder="–" aria-label="${lbl}"></label>`;
   let h='';
@@ -589,18 +601,26 @@ function viewFinish(w,l){
     if(t.id==='shot'&&t.files[0]) resizeImg(t.files[0]).then(d=>{ l.screenshot=d; saveLog(l); viewFinish(w,l); }); };
 }
 function resizeImg(file){ return new Promise(res=>{ const img=new Image(); img.onload=()=>{ const m=1080,sc=Math.min(1,m/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=img.width*sc;c.height=img.height*sc; c.getContext('2d').drawImage(img,0,0,c.width,c.height); res(c.toDataURL('image/jpeg',.7)); }; img.src=URL.createObjectURL(file); }); }
-function viewSummary(w){ const run=isRun(w); subHead(run?'Tempo · gedaan ✓':'Gedaan ✓',run?'Lekker gelopen!':'Lekker bezig!');
+function viewSummary(w){ const run=isRun(w); subHead(shortTitle(w),run?'Lekker gelopen!':'Lekker bezig!');
   app.innerHTML=summaryBody(w,false); setBar(`<a class="btn ghost" href="#vandaag">Terug naar Vandaag</a>`); }
 
 /* ---------- Week ---------- */
 function viewWeek(){
-  appHead('week'); const off=LS.get('weekOff',0), b=new Date(); b.setDate(b.getDate()+off*7); const wk=weekOf(ymd(b)), sm=ds=>+ds.slice(8)+' '+MAAND[+ds.slice(5,7)-1].slice(0,3);
-  let h=`<div class="wkhd"><h1>Week ${wkNo(wk[0])}</h1><span class="lbl">${sm(wk[0])} – ${sm(wk[6])}${offlineTag()}</span></div>
-   <div class="seg3 sm" data-noswipe><button data-off="-1" aria-label="vorige week">←</button><button data-off="0" class="${off===0?'on':''}">Nu</button><button data-off="1" aria-label="volgende week">→</button></div>
-   ${chainStrip(wk[0])}`;
-  wk.forEach((ds,i)=>{ const ws=PLAN.filter(w=>w.date===ds);
-    if(!ws.length) h+=`<div class="card wl ${ds===today()?'today':''}"><span class="dn">${DAYS[i]}</span><span class="sp mu">Rust</span></div>`;
-    ws.forEach(w=>{ h+=`<a class="card wl ${ds===today()?'today':''}" href="#w/${esc(w.id)}"><span class="dn">${DAYS[i]}</span><span class="sp"><b>${esc(w.title)}</b></span>${stBadge(w)}</a>`; }); });
+  appHead('week'); const off=LS.get('weekOff',0), b=new Date(); b.setDate(b.getDate()+off*7); const wk=weekOf(ymd(b)), td=today();
+  const sm=(a,z)=>a.slice(5,7)===z.slice(5,7)?`${+a.slice(8)}–${+z.slice(8)} ${MAAND[+z.slice(5,7)-1].slice(0,3)}`:`${+a.slice(8)} ${MAAND[+a.slice(5,7)-1].slice(0,3)} – ${+z.slice(8)} ${MAAND[+z.slice(5,7)-1].slice(0,3)}`;
+  // v15 audit: één kopregel met ‹ ›, "Nu" alleen buiten de huidige week; ketting verticaal als daglabel; één regel per rij; pillen alleen voor uitzonderingen
+  let h=`<div class="wkhd" data-noswipe><h1>Week ${wkNo(wk[0])}</h1><span class="lbl">${sm(wk[0],wk[6])}${offlineTag()}</span><span class="sp"></span>
+   ${off!==0?'<button class="wnav now" data-off="0">Nu</button>':''}<button class="wnav" data-off="-1" aria-label="Vorige week">‹</button><button class="wnav" data-off="1" aria-label="Volgende week">›</button></div>`;
+  const S=wk.map(dayState), fill=s=>s==='done'||s==='rest'||s==='free';
+  const pill=w=>{ const s=statusOf(w); if(s==='gedaan'||(!ST[s]&&w.type!=='rest'&&w.date<=td&&dayState(w.date)==='done'))return '<span class="st ok" aria-label="Gedaan">✓</span>';
+    if(ST[s])return `<span class="st ${ST[s][0]}">${ST[s][1]}</span>`; return w.date===td&&w.type!=='rest'?'<span class="st now">Vandaag</span>':''; };
+  h+=`<div class="chain vert" aria-label="Reeks deze week">${wk.map((ds,i)=>{ const ws=PLAN.filter(w=>w.date===ds), w0=ws.find(x=>x.type!=='rest')||ws[0], s=S[i];
+    const c=fill(s)?'ok':(s==='miss'||s==='skip')?'miss':'';
+    const lk=`<a class="lk ${c} ${fill(s)&&i<6&&fill(S[i+1])?'cn':''} ${ds===td?'today':''}" href="${w0?'#w/'+esc(w0.id):'#week'}" aria-label="${esc(cap(DAG[(i+1)%7]))} ${+ds.slice(8)}/${+ds.slice(5,7)}: ${s==='done'?'gedaan':s==='rest'?'rustdag':s==='free'?'vrij':s==='miss'?'gemist':s==='skip'?'overgeslagen':'open'}"><i>${DAYS[i]}</i></a>`;
+    const rows=!ws.length?`<div class="card wl wrest"><span class="sp mu">${PLAN.some(x=>x.date>=ds)?'Rust':'Nog niet gepland'}</span></div>`:ws.map(w=>w.type==='rest'
+      ?`<a class="card wl wrest" href="#w/${esc(w.id)}"><span class="sp mu">Rust</span>${pill(w)}</a>`
+      :`<a class="card wl ${ds===td?'today':''}" href="#w/${esc(w.id)}"><span class="sp"><b>${esc(shortTitle(w))}</b></span>${pill(w)}</a>`).join('');
+    return `<div class="wday">${lk}<div class="wrows">${rows}</div></div>`; }).join('')}</div>`;
   app.innerHTML=h;
   app.onclick=e=>{const o=e.target.closest('[data-off]'); if(!o)return; LS.set('weekOff',o.dataset.off==='0'?0:off+(+o.dataset.off)); viewWeek();};
 }
@@ -650,7 +670,9 @@ function bodyCard(runs){ const H=healthDays(), t=today(), mx=hrMax(), W8=lastWee
   // 1) belasting
   const wkT=W8.map(w=>{ let s=0; for(let i=0;i<7;i++){ const ds=addDays(w,i); if(ds<=t)s+=dayTrimp(H,ds,mx); } return s; });
   const prev=wkT.slice(-4,-1).filter(x=>x>0), cur=wkT[wkT.length-1], prevAvg=prev.length?mean(prev):null, tToday=dayTrimp(H,t,mx);
-  const dLoad=prevAvg==null?null:cur>prevAvg*1.1?1:cur<prevAvg*0.9?-1:0, anyLoad=wkT.some(x=>x>0);
+  // v15: de week loopt nog. Ma–wo alleen een pijl omhoog als je de hele vorige week al voorbij bent; daarna naar rato van de verstreken dagen
+  const dw=(new Date(t+'T12:00').getDay()+6)%7+1, exp=prevAvg==null?null:prevAvg*dw/7;
+  const dLoad=prevAvg==null?null:dw<4?(cur>prevAvg*1.1?1:null):cur>exp*1.1?1:cur<exp*0.9?-1:0, anyLoad=wkT.some(x=>x>0);
   // 2) herstel (HRV % baseline)
   const hdays=Object.keys(H).filter(k=>dayHrv(H[k])!=null).sort(), nH=hdays.filter(k=>k>addDays(t,-28)).length;
   const wkH=W8.map(w=>{ for(let i=6;i>=0;i--){ const ds=addDays(w,i); if(ds>t)continue; const r=hrvPct(H,ds); if(r)return r.pct; } return null; });
@@ -700,7 +722,7 @@ function runProgress(){ let h='';
      ${tp.length>1?`<div class="effl">${tp.slice(-4).reverse().map(x=>`<span><b>${fmt(x.p)}</b> ${+x.d.slice(8)}/${+x.d.slice(5,7)}</span>`).join('')}</div>`:''}</div>`; }
   const m=today().slice(0,7), km=runs.filter(l=>l.date.startsWith(m)).reduce((a,l)=>a+(+l.run.distance_km||0),0), longest=Math.max(...runs.map(l=>+l.run.distance_km||0));
   h+=`<div class="card exs"><div class="li"><span class="sp">Km deze maand</span><b class="num" style="font-size:22px">${String(Math.round(km*10)/10).replace('.',',')} km</b></div><div class="li"><span class="sp">Langste run</span><b class="num" style="font-size:22px">${String(longest).replace('.',',')} km</b></div><div class="li"><span class="sp">Sessies</span><b class="num" style="font-size:22px">${runs.length}</b></div></div>
-   <h2>Laatste loopsessies</h2><div class="card exs">${runs.slice(-8).reverse().map(l=>{const r=l.run,w=byId(l.workout_id);return `<div class="li"><span class="sp"><b>${+l.date.slice(8)}/${+l.date.slice(5,7)}</b> · ${esc(w?w.title:l.workout_id)}</span><span class="mu" style="font-size:14px">${r.distance_km!=null?esc(String(r.distance_km).replace('.',','))+' km':''}${r.duration_min!=null?' · '+Math.round(r.duration_min)+'′':''}${r.avg_hr?' · ♥ '+esc(r.avg_hr):''}</span></div>`}).join('')}</div>`;
+   <h2>Laatste loopsessies</h2><div class="card exs">${runs.slice(-8).reverse().map(l=>{const r=l.run,w=byId(l.workout_id);return `<div class="li"><span class="sp"><b>${+l.date.slice(8)}/${+l.date.slice(5,7)}</b> · ${esc(w?heroTitle(w):{run_z2:'Zone 2',run_tempo:'Tempo-intervallen'}[runTypeOf(l)]||l.workout_id)}</span><span class="mu" style="font-size:14px">${r.distance_km!=null?esc(String(r.distance_km).replace('.',','))+' km':''}${r.duration_min!=null?' · '+Math.round(r.duration_min)+'′':''}${r.avg_hr?' · ♥ '+esc(r.avg_hr):''}</span></div>`}).join('')}</div>`;
   return h; }
 
 function viewProg(k){ appHead('progressie'); k=k==='hardlopen'?'hardlopen':(k||LS.get('progTab','kracht')); LS.set('progTab',k);
@@ -737,15 +759,18 @@ function viewRun(w){
   const state=()=>{ if(!st)return {i:0,left:P[0].sec,el:0}; const now=st.pausedAt||Date.now(); const el=(now-st.start-st.pausedTotal)/1000; let acc=0;
     for(let i=0;i<P.length;i++){ if(el<acc+P[i].sec)return {i,left:acc+P[i].sec-el,el}; acc+=P[i].sec; } return {i:P.length,left:0,el:total}; };
   let lastI=state().i; const z2=w.type==='run_z2';
-  subHead(w.title, z2?'Zone 2':'Tempo-intervallen');
+  // v15 audit: per herhaling één rij ("1 · 3:00 hard · 2:00 herstel"); opnieuw / volgende / afsluiten klein in de timerkaart, ▶ Start is de hoofdknop
+  const groups=[]; P.forEach((q,i)=>{ if(q.work)groups.push({rep:q.rep,ix:[i],txt:`${q.rep} · ${fmt(q.sec)} hard`}); else if(q.name==='Herstel'&&groups.length&&groups[groups.length-1].rep){ const g=groups[groups.length-1]; g.ix.push(i); g.txt+=` · ${fmt(q.sec)} herstel`; } else groups.push({ix:[i],txt:q.name,sec:q.sec}); });
+  const ctl=(s,p)=>`<div class="rctl"><button class="lnk2" id="rst">Opnieuw</button><button class="lnk2" id="skip" ${!st||s.i>=P.length?'disabled':''}>${z2?'Stop':(p&&p.work?'Herhaling klaar':'Volgende blok')}</button><a class="lnk2" href="#w/${esc(w.id)}/klaar">Afsluiten</a></div>`;
+  subHead(z2?(durOf(w)?durOf(w)+' min':''):ivTxt(w), heroTitle(w));
   app.innerHTML=`<div id="runbody"></div>`; const body=app.querySelector('#runbody');
   function draw(){ const s=state(); if(s.i!==lastI){ beep(s.i>=P.length?4:2, P[s.i]&&P[s.i].work?1046:660); flash(app); lastI=s.i; if(s.i>=P.length&&st&&!st.done){st.done=true;LS.set(k,st);} }
     const p=P[s.i], pct=100*s.el/total; let h='';
     if(z2) h+=`<div class="card hero" style="text-align:center"><div class="lbl">Doel-hartslag</div><div class="big" style="font-size:64px">${esc(w.hr_target||'130–140')}</div><div style="font-size:14px;color:#2A1206">${esc((w.blocks?.[0]?.items?.[0]?.notes)||'Praattest: je kunt hele zinnen praten.')}</div></div>
       <div class="g2"><div class="card" style="margin:0;text-align:center"><div class="lbl">Verstreken</div><div class="num" style="font-size:44px">${fmt(s.el)}</div></div><div class="card" style="margin:0;text-align:center"><div class="lbl">Resterend</div><div class="num" style="font-size:44px">${fmt(total-s.el)}</div></div></div><div class="ring" style="margin:14px 0"><i style="width:${pct}%"></i></div>`;
-    else h+=`<div class="card" style="text-align:center;padding:22px 16px"><div class="lbl">${p?esc(p.name):'Klaar!'}</div><div class="big3">${fmt(Math.ceil(s.left))}</div><div style="font-size:18px">${esc(p?p.hint:'Goed gedaan. Vul je gegevens in.')}</div><div class="ring" style="margin:12px 0 6px"><i style="width:${pct}%"></i></div><div class="mu" style="font-size:13px">Totaal ${fmt(s.el)} / ${fmt(total)}</div></div>
-      <div class="card exs">${P.map((q,i)=>`<div class="li" style="min-height:52px;${i===s.i?'color:var(--ac);font-weight:700':''}"><span class="sp">${i<s.i?'✓ ':''}${esc(q.name)}</span><span class="mu">${fmt(q.sec)}</span></div>`).join('')}</div>`;
-    h+=`<div class="g2" style="margin-top:12px"><button class="btn ghost sm" id="rst">Opnieuw</button><button class="btn ghost sm" id="skip" ${!st||s.i>=P.length?'disabled':''}>${z2?'Stop':(p&&p.work?'Herhaling klaar':'Volgende blok')}</button></div><a class="btn ghost sm" style="margin-top:8px" href="#w/${esc(w.id)}/klaar">Afsluiten →</a>`;
+    else h+=`<div class="card" style="text-align:center;padding:22px 16px"><div class="lbl">${p?esc(p.name):'Klaar!'}</div><div class="big3">${fmt(Math.ceil(s.left))}</div><div style="font-size:18px">${esc(p?p.hint:'Goed gedaan. Vul je gegevens in.')}</div><div class="ring" style="margin:12px 0 6px"><i style="width:${pct}%"></i></div><div class="mu" style="font-size:13px">Totaal ${fmt(s.el)} / ${fmt(total)}</div>${ctl(s,p)}</div>
+      <div class="card exs">${groups.map(g=>{ const on=g.ix.includes(s.i), dn=g.ix.every(i=>i<s.i); return `<div class="li" style="min-height:52px;${on&&g.rep?'color:var(--ac);font-weight:700':''}"><span class="sp">${dn?'✓ ':''}${esc(g.txt)}</span>${g.rep?'':`<span class="mu">${fmt(g.sec)}</span>`}</div>`; }).join('')}</div>`;
+    if(z2) h+=`<div class="card" style="padding:10px 12px">${ctl(s,p)}</div>`;
     body.innerHTML=h;
     setBar(s.i>=P.length?`<a class="btn" href="#w/${esc(w.id)}/klaar">Klaar · afsluiten</a>`:`<button class="btn" id="go">${!st?'▶ Start':st.pausedAt?'▶ Verder':'❚❚ Pauze'}</button>`); }
   const onClick=e=>{ const id=(e.target.closest('[id]')||{}).id;
@@ -759,34 +784,24 @@ function viewRun(w){
 /* ---------- Profiel (bottom-sheet) ---------- */
 let sheetEl=null;
 function closeSheet(){ if(sheetEl){ sheetEl.remove(); sheetEl=null; } }
-function openProfile(){ closeSheet(); const p=PROFILE(), ap=p.aftrap||{}; sheetEl=document.createElement('div');
-  const ev=ap.event&&ap.event.type&&!/nee/i.test(ap.event.type)?' · '+esc(ap.event.type)+(ap.event.doeltijd?' '+esc(ap.event.doeltijd):''):'';
-  sheetEl.innerHTML=`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="Profiel"><div class="grab"></div>
-   <div class="row" style="margin-bottom:12px"><div class="av">${esc(initials(p.name))}</div><div class="sp"><b class="h" style="font-size:26px">${esc(p.name)}</b><div class="mu" style="font-size:14px">Trainer: ${esc(TRAINER())}${ev}</div></div></div>
-   <div class="lbl">Profiel wisselen</div>
-   <div class="li"><div class="av">${esc(initials(p.name))}</div><div class="sp"><b>${esc(p.name.split(' ')[0])}</b><div class="mu" style="font-size:14px">Jij</div></div><span style="color:var(--ac);font-size:20px">✓</span></div>
-   <button class="li add" style="width:100%;text-align:left" id="friend"><div class="av">+</div><b style="color:var(--ac)">Vriend toevoegen</b></button>
-   <div class="lbl" style="margin-top:12px">Instellingen</div>
-   <a class="li" href="#instellingen"><span class="sp">Koppeling met ${esc(TRAINER())}</span>${syncOn()?'<b class="ok">Gekoppeld ✓</b>':'<b style="color:var(--ac)">Koppel ›</b>'}</a>
-   <a class="li" href="#aftrap/1"><span class="sp">Aftrap opnieuw doen</span><span class="mu">›</span></a>
-   <a class="li" href="#instellingen"><span class="sp">Versie</span><span class="mu">${VLABEL}</span></a></div>`;
-  document.body.appendChild(sheetEl);
-  sheetEl.onclick=e=>{ if(e.target.closest('[data-close]'))return closeSheet(); if(e.target.closest('#friend'))return toast('Vrienden toevoegen komt binnenkort'); if(e.target.closest('a'))setTimeout(closeSheet,0); };
-  let y0=null; const sh=sheetEl.querySelector('.sheet'); sh.addEventListener('touchstart',e=>{y0=e.touches[0].clientY},{passive:true}); sh.addEventListener('touchend',e=>{ if(y0!=null&&e.changedTouches[0].clientY-y0>80&&sh.scrollTop<=0)closeSheet(); y0=null; },{passive:true}); }
+function openProfile(){ ACC.openSheet(); }
 
 /* ---------- Instellingen (koppeling via magic link; geen tokenveld) ---------- */
 function viewSettings(){
-  subHead('Profiel','Instellingen');
-  const q=LS.get('queue',[]).length, linked=syncOn();
-  app.innerHTML=`${linked?`<div class="card row"><span class="sp"><b>Koppeling met ${esc(TRAINER())}</b><div class="mu" style="font-size:14px">${q} in wachtrij · logs van server: ${esc(serverLogsState||'nog niet opgehaald')}</div></span><b class="ok">Gekoppeld ✓</b></div>`
+  subHead('','Instellingen');
+  const q=LS.get('queue',[]).length, linked=syncOn(), acc=ACC.active(), last=(String(serverLogsState).match(/\((\d\d:\d\d)\)/)||[])[1];
+  const sub=`Sync aan · ${q} in wachtrij${last?' · laatst '+last:''}${serverLogsState&&!/^ok/.test(serverLogsState)?' · logs: '+esc(serverLogsState):''}`;
+  app.innerHTML=`${linked?`<div class="card row"><span class="sp"><b>Koppeling met ${esc(TRAINER())}</b><div class="mu" id="res" style="font-size:14px">${sub}</div></span><b class="ok">Gekoppeld ✓</b></div>`
    :`<h1>Koppel de app</h1><div class="note">Open de koppellink die je van ${esc(TRAINER())} kreeg. Of kopieer hem en tik op <b>Plakken &amp; koppelen</b>.</div>
    <button class="btn" id="paste">📋 Plakken &amp; koppelen</button>
-   <details class="card"><summary>Plakken lukt niet?</summary><div class="field"><input id="link" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Houd ingedrukt → Plak"></div><button class="btn ghost sm" id="linkgo" style="margin-top:8px">Koppel</button></details>`}
-   <div class="card mu" id="res" style="font-size:14px">${linked?'Sync staat aan':'Sync staat uit (niet gekoppeld)'} · ${q} in wachtrij</div>
+   <details class="card"><summary>Plakken lukt niet?</summary><div class="field"><input id="link" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Houd ingedrukt → Plak"></div><button class="btn ghost sm" id="linkgo" style="margin-top:8px">Koppel</button></details>
+   <div class="card mu" id="res" style="font-size:14px">Sync staat uit (niet gekoppeld) · ${q} in wachtrij</div>`}
    <div class="g2"><button class="btn ghost sm" id="refresh" ${linked?'':'disabled'}>Vernieuwen</button><button class="btn ghost sm" id="diag">Diagnose</button></div>
    <pre class="card diag" id="dout" hidden></pre><button class="btn ghost sm" id="copy" hidden>Kopieer</button>
+   <a class="card row" href="#aftrap/1" style="text-decoration:none;color:inherit"><span class="sp"><b>Aftrap opnieuw doen</b></span><span class="mu">›</span></a>
+   ${acc?`<div class="card" id="htok"><b>Sleutel voor de iOS-Opdracht</b><div class="mu" style="font-size:14px;margin-top:4px">Voor de Opdracht "VOLGAS Gezondheid". Je ziet de sleutel één keer; een nieuwe sleutel maakt de oude ongeldig.</div><button class="btn ghost sm" id="htgo" style="margin-top:10px">Maak sleutel</button></div>`:''}
    <div class="card"><div class="lbl">Versie</div><b style="font-size:18px">${VLABEL}</b><div class="mu" id="swv" style="font-size:14px">service worker: …</div></div>
-   ${linked?'<button class="btn red sm" id="clr">Koppeling wissen</button>':''}`;
+   ${linked&&!acc?'<button class="btn red sm" id="clr">Koppeling wissen</button>':''}`;
   swVersion().then(v=>{const el=app.querySelector('#swv'); if(el)el.textContent='service worker: '+v;});
   const val=()=>{ const st=LS.get('cfg',{}); return {API_URL:st.API_URL||CFG.API_URL||'',TOKEN:st.TOKEN||CFG.TOKEN||''}; };
   const link=async txt=>{ const v=parseLink(txt); const r=app.querySelector('#res');
@@ -797,6 +812,11 @@ function viewSettings(){
     if(id==='linkgo') return link(app.querySelector('#link').value);
     if(id==='clr'&&confirm('Koppeling wissen? (logs blijven bewaard)')){ localStorage.removeItem('cfg'); location.reload(); }
     if(id==='diag') return diagnose(val());
+    if(id==='htgo'){ if(!confirm('Nieuwe sleutel maken? Een oude sleutel in de Opdracht werkt daarna niet meer.'))return; e.target.disabled=true; e.target.textContent='Bezig…';
+      const x=await api('POST',null,{action:'healthtoken'},CFG,1).catch(()=>null); const box=app.querySelector('#htok');
+      if(!x||!x.ok||!x.health_token){ e.target.disabled=false; e.target.textContent='Maak sleutel'; return toast('Lukt niet: '+((x&&x.error)||'geen verbinding')); }
+      box.innerHTML=`<b>Sleutel voor de iOS-Opdracht</b><div class="mu" style="font-size:14px;margin:4px 0 8px">Plak deze in de Opdracht bij "token". Hij wordt niet nog eens getoond.</div><pre class="card diag" id="htv" style="user-select:all;white-space:pre-wrap;word-break:break-all">${esc(x.health_token)}</pre><button class="btn ghost sm" id="htcp">Kopieer</button>`; return; }
+    if(id==='htcp'){ const t=app.querySelector('#htv').textContent; try{ await navigator.clipboard.writeText(t); }catch(err){} e.target.textContent='✓ Gekopieerd'; return; }
     if(id==='refresh'){ e.target.textContent='Bezig…'; await loadPlan(); await loadServerLogs(); await flush(); await writeOverrides(); return viewSettings(); }
     if(id==='copy'){ const t=app.querySelector('#dout').textContent; try{ await navigator.clipboard.writeText(t); e.target.textContent='✓ Gekopieerd'; }catch(err){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); e.target.textContent='✓ Gekopieerd'; } return; } };
   app.querySelector('#link')?.addEventListener('paste',e=>setTimeout(()=>{ if(parseLink(e.target.value))link(e.target.value); },50));
@@ -902,5 +922,6 @@ if('serviceWorker' in navigator){
 Object.keys(localStorage).filter(k=>k.startsWith('log:')).forEach(k=>{ if(!isMeaningful(LS.get(k)))localStorage.removeItem(k); });
 LS.set('queue',LS.get('queue',[]).filter(id=>isMeaningful(LS.get(logKey(id)))));
 syncLabel(); route(); loadPlan(); loadServerLogs().then(flush).then(()=>{ writeOverrides(); sendAftrap(); }); Voice.ping();
+if(!syncOn()) ACC.probe().then(ok=>{ if(ok) route(); });
 if(justLinked) setTimeout(()=>toast('Gekoppeld ✓'),300);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ loadPlan(); loadServerLogs().then(flush).then(()=>{ writeOverrides(); sendAftrap(); }); Voice.ping(); } });

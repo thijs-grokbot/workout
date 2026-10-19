@@ -14,7 +14,7 @@ await p.waitForFunction(()=>(localStorage.healthState||'').length>2,null,{timeou
 await p.evaluate(()=>{localStorage.aftrapDone=localStorage.aftrapDone||'1';localStorage.mile=localStorage.mile||'100';location.hash='#week';});await p.waitForTimeout(800);
 await p.evaluate(()=>{location.hash='#vandaag';});await p.waitForTimeout(2000);
 const snap=()=>p.evaluate(()=>JSON.stringify(Object.keys(localStorage).filter(k=>/^log:|^queue$/.test(k)).sort().map(k=>[k,localStorage[k]])));const before=await snap();
-const info=await p.evaluate(()=>{const c=document.querySelector('main .chain');const L=[...c.querySelectorAll('.lk')];return {ver:(document.querySelector('.ver')||{}).textContent,streak:(document.querySelector('.streak .h')||{}).textContent,
+const info=await p.evaluate(()=>{const c=document.querySelector('main .chain');const L=[...c.querySelectorAll('.lk')];return {ver:(typeof APP_VERSION!=='undefined'?APP_VERSION:'')+' · '+((document.querySelector('.ver')||{}).textContent||'geen versieregel'),hash:location.hash,mode:typeof ACC!=='undefined'?ACC.mode():'n.v.t.',accountsApi:localStorage.accountsApi||null,streak:(document.querySelector('.streak .h')||{}).textContent,
   chainN:L.length,chainScroll:c.classList.contains('scroll'),chainLastToday:L[L.length-1].classList.contains('today'),chainAtEnd:Math.abs(c.scrollLeft+c.clientWidth-c.scrollWidth)<=2,
   chainLast7:L.slice(-7).map(e=>e.innerText.trim()+':'+((e.className.match(/\b(ok|miss)\b/)||['-'])[0])).join(' '),health:localStorage.healthState,logs:localStorage.serverLogsState};});
 await p.evaluate(()=>scrollTo(0,document.body.scrollHeight));await p.waitForTimeout(200);await p.screenshot({path:S+PFX+'-vandaag.png'});

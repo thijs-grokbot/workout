@@ -9,13 +9,11 @@ await p.goto(U);await p.evaluate(()=>{localStorage.clear();localStorage.aftrapDo
 await p.reload();await p.waitForTimeout(800);
 const tabs=await p.$$eval('header nav.tabs a',a=>a.map(x=>x.textContent));
 assert.deepStrictEqual(tabs,['Vandaag','Morgen','Week','Progressie']);
-assert.strictEqual(await p.$$eval('header .dots span',s=>s.length),4);
-const link=await p.$('a.morgen[href="#morgen"]');assert.ok(link,'geen deep-link naar Morgen op Vandaag');
-assert.match(await link.innerText(),/Morgen[\s\S]*Thuis-backup/i);
-await p.screenshot({path:__dirname+'/shots/v142-vandaag-morgenlink.png',fullPage:true});
-await link.click();await p.waitForTimeout(300);
+assert.strictEqual(await p.$('header .dots'),null,'v15 audit: geen pagina-stipjes onder de tabs');
+assert.strictEqual(await p.$('main a.morgen'),null,'v15 audit: geen Morgen-kaart op Vandaag (tab staat ernaast)');
+await p.click('header nav.tabs a[href="#morgen"]');await p.waitForTimeout(300);
 assert.strictEqual(await p.evaluate(()=>location.hash),'#morgen');
-const m=await p.innerText('main');assert.match(m,/Donderdag 15 oktober/i);assert.match(m,/Thuis-backup 20 min AMRAP/i);
+const m=await p.innerText('main');assert.match(m,/Donderdag 15 oktober/i);assert.match(m,/Thuis[\s\S]*20 min AMRAP/i);
 assert.match(await p.innerText('header nav.tabs a.on'),/Morgen/);
 assert.strictEqual(await p.$('#start'),null,'Morgen mag geen startknop hebben');assert.strictEqual(await p.$('.pvlink'),null,'dubbele bekijk-link');
 const vb=await p.$('#view[href="#voorbeeld/2026-10-15-thuis"]');assert.ok(vb,'Bekijk workout wijst niet naar voorvertoning van morgen');assert.strictEqual((await vb.innerText()).trim(),'Bekijk workout');

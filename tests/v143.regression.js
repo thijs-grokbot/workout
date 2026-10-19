@@ -32,9 +32,9 @@ const cls=await p.$$eval('main .chain .lk',e=>e.map(x=>x.className.replace(/\s+/
 assert.ok(/ok/.test(cls[cls.length-2])&&/ok/.test(cls[cls.length-1])&&/today/.test(cls[cls.length-1]),'do (15-z2) en vr (rustdag) niet gevuld: '+cls.join('|'));
 await p.screenshot({path:S+'v143-vandaag-rustdag.png',fullPage:true});
 await p.evaluate(()=>location.hash='#week');await p.waitForTimeout(300);
-assert.match(await p.innerText('main'),/Rustdag\s*\n?\s*Rust/,'week toont geen Rust-label bij rustdag');
-assert.match(await p.innerText('main'),/Thuis-backup[^\n]*\n?[^\n]*\n?\s*✓ Gedaan/,'andere workout op die dag telt niet als gedaan in Week');
-const ch2=await p.$$eval('main .chain .lk i',els=>els.map(e=>Math.round(e.getBoundingClientRect().top)));assert.ok(ch2.every(y=>y===ch2[0]));
+assert.ok(await p.$('main .wday:nth-child(5) .wl.wrest'),'week toont geen Rust-rij bij rustdag');assert.ok(!/Rustdag/.test(await p.innerText('main')),'v15: Rustdag + Rust dubbel');
+assert.ok(await p.$('main .wday:nth-child(4) .wl .st.ok'),'andere workout op die dag telt niet als gedaan in Week');assert.match(await p.innerText('main .wday:nth-child(4)'),/Thuis · 20 min AMRAP/);
+const ch2=await p.$$eval('main .chain .lk i',els=>els.map(e=>Math.round(e.getBoundingClientRect().left)));assert.ok(ch2.every(y=>y===ch2[0]),'v15: verticale ketting staat niet in één kolom');
 await p.screenshot({path:S+'v143-week.png'});
 await p.evaluate(()=>location.hash='#w/2026-10-16-rust');await p.waitForTimeout(300);
 assert.ok(await p.$('.restday'));assert.strictEqual(await p.evaluate(()=>document.querySelector('#bar').style.display),'none','knop onderin op rustdag');

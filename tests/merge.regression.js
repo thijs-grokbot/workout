@@ -19,7 +19,7 @@ assert.ok(!posted.some(x=>x.log&&!x.log.status&&!(x.log.sets||[]).some(s=>s.done
 // Vandaag (13/10 = tempo) toont Gedaan, Week toont beide als gedaan, Progressie toont runs
 assert.match(await p.innerText('main'),/Gedaan/i);
 await p.goto(U+'#week');await p.waitForTimeout(400);const wk=await p.innerText('main');
-assert.match(wk,/Zone 2 duurloop 45 min\s*\n?.*\n?.*Gedaan/i);assert.ok((wk.match(/Gedaan/gi)||[]).length>=2,wk);
+assert.match(wk,/Zone 2 · 45 min\s*\n?\s*✓/i);assert.ok(await p.$$eval('main .wl .st.ok',x=>x.length)>=2,wk); // v15: korte titel, ✓ als enige pil
 await p.goto(U+'#progressie/hardlopen');await p.waitForTimeout(400);const pr=await p.innerText('main');assert.match(pr,/6[.,]24 km/);assert.match(pr,/142/);
 // workout openen maakt geen leeg log aan
 await p.evaluate(()=>localStorage.removeItem('log:2026-10-14-kracht-a'));await p.goto(U+'#w/2026-10-14-kracht-a');await p.waitForTimeout(400);
