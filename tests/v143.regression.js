@@ -29,7 +29,7 @@ const ch=await p.$$eval('main .chain .lk i',els=>els.map(e=>{const r=e.getBoundi
 assert.strictEqual(ch.length,7);assert.ok(ch.every(x=>x[0]===ch[0][0]&&x[1]===ch[0][1]&&x[2]===ch[0][2]),'ketting niet op één lijn / ongelijk: '+JSON.stringify(ch));
 assert.strictEqual(ch[0][1],ch[0][2],'geen vierkantjes');
 const cls=await p.$$eval('main .chain .lk',e=>e.map(x=>x.className.replace(/\s+/g,' ').trim()));
-assert.ok(/ok/.test(cls[3])&&/ok/.test(cls[4]),'do (15-z2) en vr (rustdag) niet gevuld: '+cls.join('|'));
+assert.ok(/ok/.test(cls[cls.length-2])&&/ok/.test(cls[cls.length-1])&&/today/.test(cls[cls.length-1]),'do (15-z2) en vr (rustdag) niet gevuld: '+cls.join('|'));
 await p.screenshot({path:S+'v143-vandaag-rustdag.png',fullPage:true});
 await p.evaluate(()=>location.hash='#week');await p.waitForTimeout(300);
 assert.match(await p.innerText('main'),/Rustdag\s*\n?\s*Rust/,'week toont geen Rust-label bij rustdag');
@@ -42,7 +42,7 @@ await c.close();
 // overgeslagen breekt
 ({c,p}=await ctx(b,'2026-10-16',[...BASE.slice(0,5),L('2026-10-15-thuis','2026-10-15','overgeslagen')],posted));
 assert.match(await p.innerText('.streak .h'),/^1 dag$/i,'overgeslagen brak streak niet');
-assert.ok(/miss/.test(await p.$eval('main .chain .lk:nth-child(4)',e=>e.className)),'overgeslagen niet gestippeld');
+assert.ok(/miss/.test(await p.$eval('main .chain .lk[aria-label*=" 15/10:"]',e=>e.className)),'overgeslagen niet gestippeld');
 await p.screenshot({path:S+'v143-ketting-overgeslagen.png',clip:{x:0,y:600,width:390,height:244}});
 await c.close();
 // gemist breekt
@@ -54,11 +54,11 @@ await c.close();
 assert.strictEqual(await p.$$eval('main .exs .li',x=>x.filter(e=>/^\S$/.test(e.innerText.split('\n')[0].trim())).length),0,'feedback per letter');
 assert.match(await p.innerText('main'),/Z2 lekker gelopen/);
 await c.close();
-// efficiëntietrend: runs < 20 min vallen weg (v14.3.1)
-({c,p}=await ctx(b,'2026-10-16',[...BASE,L('2026-10-16-x-z2','2026-10-16','gedaan',{duration_min:8,distance_km:1.2,avg_hr:151})],posted));
+// v14.4: efficiëntiekaart vervangen door belasting · herstel · basis; korte run telt niet als Zone 2-test
+({c,p}=await ctx(b,'2026-10-16',[...BASE,L('2026-10-16-x-z2','2026-10-16','gedaan',{duration_min:8,distance_km:1,avg_hr:151})],posted));
 await p.evaluate(()=>location.hash='#progressie/hardlopen');await p.waitForTimeout(400);
-const ef=await p.innerText('main .chart');assert.ok(!/16\/10/.test(ef),'korte run in efficiëntietrend');assert.match(ef,/15\/10/);
-assert.strictEqual(await p.evaluate(()=>aeroEff({duration_min:19.9,distance_km:3,avg_hr:140})),null);assert.ok(await p.evaluate(()=>aeroEff({duration_min:20,distance_km:3,avg_hr:140})>0));
+assert.ok(await p.$('main .body3'));assert.ok(!/efficiënt|m\/slag/i.test(await p.innerText('main')),'oude efficiëntiekaart nog zichtbaar');
+assert.ok(!Object.values(await p.evaluate(()=>z2Tests(480))).some(x=>x.d==='2026-10-16'),'korte run als Zone 2-test');
 await c.close();
 // ---------- rustdag op Morgen (vandaag do 15/10, morgen = rust)
 ({c,p}=await ctx(b,'2026-10-15',BASE.slice(0,5),posted));

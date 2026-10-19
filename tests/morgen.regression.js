@@ -17,7 +17,13 @@ await link.click();await p.waitForTimeout(300);
 assert.strictEqual(await p.evaluate(()=>location.hash),'#morgen');
 const m=await p.innerText('main');assert.match(m,/Donderdag 15 oktober/i);assert.match(m,/Thuis-backup 20 min AMRAP/i);
 assert.match(await p.innerText('header nav.tabs a.on'),/Morgen/);
-assert.ok(await p.$('#start[href="#w/2026-10-15-thuis"]'),'start-knop wijst niet naar morgen');
+assert.strictEqual(await p.$('#start'),null,'Morgen mag geen startknop hebben');assert.strictEqual(await p.$('.pvlink'),null,'dubbele bekijk-link');
+const vb=await p.$('#view[href="#voorbeeld/2026-10-15-thuis"]');assert.ok(vb,'Bekijk workout wijst niet naar voorvertoning van morgen');assert.strictEqual((await vb.innerText()).trim(),'Bekijk workout');
+await vb.click();await p.waitForTimeout(300);assert.match(await p.evaluate(()=>location.hash),/^#voorbeeld\/2026-10-15-thuis/);
+assert.strictEqual(await p.$('#pvstart'),null,'voorvertoning van morgen kan starten');assert.match(await p.innerText('#bar'),/Starten kan morgen via Vandaag/);
+await p.screenshot({path:__dirname+'/shots/v144-morgen-voorvertoning.png'});
+await p.click('#pvback');await p.waitForTimeout(300);assert.strictEqual(await p.evaluate(()=>location.hash),'#morgen');
+assert.strictEqual(await p.evaluate(()=>localStorage.training||'0'),'0','training gestart vanuit Morgen');
 await p.screenshot({path:__dirname+'/shots/v142-morgen.png',fullPage:true});
 // swipe: Morgen → Week → Progressie, terug → Week → Morgen → Vandaag
 const sw=async dx=>{await p.evaluate(dx=>{const el=document.querySelector('#app');const mk=(type,x)=>{const e=new Event(type,{bubbles:true,cancelable:true});const pt={identifier:1,target:el,clientX:x,clientY:400};Object.defineProperty(e,'touches',{value:type==='touchend'?[]:[pt]});Object.defineProperty(e,'changedTouches',{value:[pt]});return e;};
