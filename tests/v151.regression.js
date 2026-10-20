@@ -8,6 +8,7 @@ const W=[{id:'2026-10-20-boven',date:'2026-10-20',type:'strength',title:'Bovenli
   {name:'Warming-up',items:[{exercise:'Roeien rustig',reps:'5 min',duration_sec:300},{exercise:'Scapula pull-ups',reps:'8'}]},
   {name:'Superset 1',items:[pu(1),ps(1),rs(1),pu(2),ps(2),rs(2),pu(3),ps(3)]},
   {name:'Superset 2',items:[bp(1),row(1),rs(1),bp(2),row(2),rs(2),bp(3),row(3)]},
+  {name:'Superset 3',items:[{exercise:'Set 1: Pull-ups (alleen reps)',reps:'4–6'},rs(1)]},
   {name:'Cooling-down',items:[{exercise:'Rekken',reps:'4 min',duration_sec:240}]}]}];
 (async()=>{const b=await pw.webkit.launch();const c=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,serviceWorkers:'block',hasTouch:true});
 await c.addInitScript(()=>{const D=Date;const off=new D('2026-10-20T16:00:00+02:00').getTime()-D.now();window.Date=class extends D{constructor(...a){super(...(a.length?a:[D.now()+off]))}static now(){return D.now()+off}};});
@@ -48,6 +49,9 @@ const old=await p.evaluate(()=>{const a=document.querySelector('main .ex.active'
 assert.deepStrictEqual(old,{nm:'Set 1: Eenarmige row',kg:'– kg',reps:'8 per kant'});
 const set2=await p.evaluate(()=>JSON.parse(localStorage['log:2026-10-20-boven']).sets.find(x=>x.exercise==='Set 2: Dumbbell bench press'));assert.deepStrictEqual([set2.load_done,set2.reps_done],[12,'8'],'reps_default niet als startwaarde');
 
+// alleen reps (geen load_*): reps-stepper zichtbaar
+const t3=await p.evaluate(()=>tabsOf(byId('2026-10-20-boven')).find(t=>t.block.name==='Superset 3').key);await p.evaluate(t=>location.hash='#w/2026-10-20-boven/'+t,t3);await p.waitForTimeout(400);
+assert.strictEqual(await p.$$eval('main [data-r]',x=>x.length),2);assert.strictEqual(await p.$$eval('main [data-w]',x=>x.length),0);await p.click('main [data-r][data-d="1"]');await p.waitForTimeout(200);assert.match(await p.textContent('main [data-reps]'),/^5/);
 // samenvatting: reps-teller telt niet mee als kg
 const kg=await p.evaluate(()=>{const l=getLog(byId('2026-10-20-boven'));l.status='gedaan';saveLog(l,false);const d=document.createElement('div');d.innerHTML=summaryBody(byId('2026-10-20-boven'),false);return d.innerText;});
 assert.match(kg,/2×?\s*|/);const kgv=await p.evaluate(()=>{const l=getLog(byId('2026-10-20-boven'));return l.sets.filter(s=>s.done&&!isRepsU(s.load_unit)).reduce((a,s)=>a+(+s.load_done||0)*(num(s.reps_done)||0)*(/2×/.test(s.load_unit)?2:1),0);});
