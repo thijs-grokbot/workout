@@ -280,3 +280,12 @@ input.cb:checked{background:var(--ac);border-color:var(--ac)}input.cb:checked:af
 .chain.vert .wl.today{border:2px solid var(--ac)}
 .st.now{background:var(--ac);color:var(--on)}.st.ok{font-size:15px;background:none;padding:0 2px}
 .rctl{display:flex;gap:8px;justify-content:center;margin-top:12px}.lnk2{flex:1;min-height:44px;border-radius:var(--r);background:var(--card2);color:var(--tx);font:600 14px var(--font);display:flex;align-items:center;justify-content:center;text-decoration:none}.lnk2:disabled{opacity:.4}
+
+/* v15.1: compactere oefeningsrijen; dunne rustrij */
+.exr{padding:8px 0;min-height:60px;gap:10px}.set{width:44px;height:44px;font-size:19px}
+.tim{padding:8px 0;min-height:60px;gap:10px}.tim .play{width:44px;height:44px;font-size:18px}.tim .rs{height:44px}.tim .clock{font-size:26px}
+.nm{font-size:17px;line-height:1.2}.steps{padding:0 0 10px;gap:8px}.step{height:52px}.step button{height:52px}.prev{margin:-4px 0 10px}
+.tim.ri,.exr.ri{min-height:40px;padding:4px 0}.tim.ri .play{width:32px;height:32px;font-size:13px;border-radius:8px}.tim.ri .nm,.exr.ri .nm{font-size:14px;font-weight:600;color:var(--mu)}
+.tim.ri .clock{font-size:18px}.tim.ri .rs{height:32px;width:36px;font-size:16px}.tim.ri .sub:empty{display:none}.exr.ri .set{width:32px;height:32px;font-size:14px;border-radius:8px}.exr.ri .sub{display:none}
+.ex:has(> .mv > .ri){background:var(--bg2,rgba(255,255,255,.02))}
+.step .v{overflow:hidden;text-overflow:ellipsis;font-size:18px;min-width:0}.step button{flex:none;width:46px}

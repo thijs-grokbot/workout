@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v15', APP_BUILD='volgas';
+const APP_VERSION='v15.1', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -109,10 +109,12 @@ function getLog(w){
   if(REAL_STATUS.includes(l.status)) return l;
   (w.blocks||[]).forEach((b,bi)=>{ const R=isMain(b)?(w.rounds||1):1;
     b.items.forEach((it,ii)=>{ for(let r=1;r<=R;r++){ if(!l.sets.find(s=>s.block===b.name&&sameEx(s.exercise,it.exercise)&&s.round===r))
-      l.sets.push({round:r,block:b.name,exercise:it.exercise,reps_done:it.reps??'',load_done:it.load_default??(it.load_range?it.load_range[0]:null),load_unit:it.load_unit||'',done:false}); }});});
+      l.sets.push({round:r,block:b.name,exercise:it.exercise,reps_done:it.reps_default!=null?String(it.reps_default):(it.reps??''),load_done:it.load_default??(it.load_range?it.load_range[0]:null),load_unit:it.load_unit||'',done:false}); }});});
   return l;
 }
 const isMain = b => /hoofd/i.test(b.name);
+// v15.1: werkblokken voor tellingen. Zonder 'Hoofd'-blok (bv. supersets) alle blokken behalve warming-up/cooling-down
+const workBlocks=w=>{ const B=w.blocks||[], m=B.filter(isMain); return m.length?m:B.filter(b=>!/warm|cool/i.test(b.name||'')); };
 // 'Roeien of fietsen' == 'Roeien/fietsen' == 'roeien - fietsen'
 const exKey = x => String(x||'').toLowerCase().replace(/\s+of\s+/g,'/').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
 const sameEx = (a,b) => a===b||exKey(a)===exKey(b);
@@ -122,8 +124,11 @@ function isMeaningful(l){ if(!l)return false; if(REAL_STATUS.includes(l.status))
   if(l.rpe!=null&&l.rpe!=='')return true; if(String(l.notes||'').trim()||String(l.skipped_reason||'').trim())return true;
   if(Object.values(l.run||{}).some(v=>v!=null&&v!==''))return true; if(Object.keys(l.feedback||{}).length||l.screenshot||l.amrap_rounds||(l.adjustments||[]).length)return true; return false; }
 function logTs(l){ if(!l)return ''; let t=l.updated_at||l.synced_at||l.finished_at||''; if(!t)(l.sets||[]).forEach(s=>{ if(s.ts&&s.ts>t)t=s.ts; }); return String(t); }
-function saveLog(l,sync=true){ l.updated_at=new Date().toISOString(); if(!l.profile_id)l.profile_id=(LS.get('profile',{}).id||'thijs'); const ac=ACC.active(); if(ac)l.account=ac.id; const q=new Set(LS.get('queue',[]));
-  if(!isMeaningful(l)){ localStorage.removeItem(logKey(l.workout_id)); q.delete(l.workout_id); LS.set('queue',[...q]); syncLabel(); return; }
+// v15.1: load_unit 'reps' = de stepper telt herhalingen (geen kg). reps_done volgt de teller.
+const isRepsU=u=>/^\s*reps\s*$/i.test(String(u||''));
+const isRestItem=it=>!!(it&&it.duration_sec&&/^rust\b/i.test(String(it.exercise||''))&&it.load_range==null&&it.load_default==null);
+function saveLog(l,sync=true){ (l.sets||[]).forEach(s=>{ if(isRepsU(s.load_unit)&&s.load_done!=null&&s.load_done!=='')s.reps_done=String(s.load_done); }); l.updated_at=new Date().toISOString(); if(!l.profile_id)l.profile_id=(LS.get('profile',{}).id||'thijs'); const ac=ACC.active(); if(ac)l.account=ac.id; const q=new Set(LS.get('queue',[]));
+  if(!isMeaningful(l)){ q.delete(l.workout_id); LS.set('queue',[...q]); syncLabel(); if((l.sets||[]).some(s=>s.touched))LS.set(logKey(l.workout_id),l); else localStorage.removeItem(logKey(l.workout_id)); return; } // v15.1: aangepaste stepper vóór de eerste ✓ blijft lokaal bewaard (niet verstuurd)
   LS.set(logKey(l.workout_id),l);
   if(sync){ q.add(l.workout_id); LS.set('queue',[...q]); flush(); } }
 /* server-logs ophalen en mergen: per workout_id wint de nieuwste updated_at; lokale niet-gesyncte logs nooit overschreven door ouder */
@@ -315,7 +320,7 @@ function shortTitle(w){ const d=durOf(w), t=String(w.title||'');
 function heroTitle(w){ const t=String(w.title||''); if(w.type==='run_z2')return 'Zone 2'; if(w.type==='run_tempo')return 'Tempo-intervallen'; if(w.type==='home'||/^thuis-backup/i.test(t))return 'Thuis'; return t; }
 const tipsOf=w=>(w.tips||[]).filter(x=>!/^\s*\d+\s*rondes?\b/i.test(x)||!/rust/i.test(x)); // "2 rondes, 2–3 min rust" staat al in de chips/tabs
 const pvLink=w=>w.type==='rest'?'':`<a class="card row pvlink" href="#voorbeeld/${esc(w.id)}"><span class="sp"><b>Bekijk de hele workout</b></span><span class="mu" style="font-size:22px">›</span></a>`;
-function heroCard(w,ey,view){ if(w.type==='rest')return restCard(w); const d=durOf(w), n=(w.blocks||[]).filter(isMain).reduce((a,b)=>a+b.items.length,0), st=statusOf(w);
+function heroCard(w,ey,view){ if(w.type==='rest')return restCard(w); const d=durOf(w), n=workBlocks(w).reduce((a,b)=>a+b.items.filter(i=>!isRestItem(i)).length,0), st=statusOf(w);
   const home=w.type==='home'||/^thuis-backup/i.test(w.title||''), amr=w.amrap_min?`${w.amrap_min} min AMRAP`:'', rest=String(w.title||'').replace(/^thuis-backup\s*/i,'');
   const C=[st==='deels'?'Deels gedaan':'',st==='overgeslagen'?'Overgeslagen':'',w.type==='run_tempo'?ivTxt(w):'',home?(amr||rest):'',!isRun(w)&&!home&&n?(w.rounds>1?w.rounds+' rondes':'1 ronde'):'',!isRun(w)&&!home&&n?n+' oefeningen':'',d?'± '+d+' min':'',w.rest_sec?'Rust '+fmt(w.rest_sec):''].filter(Boolean);
   return `<div class="card hero"><div class="big">${esc(heroTitle(w))}</div>
@@ -362,10 +367,10 @@ function viewMorgen(){
   app.innerHTML=h;
 }
 function summaryBody(w,onToday){
-  const l=LS.get(logKey(w.id))||{}, sets=l.sets||[], main=(w.blocks||[]).filter(isMain).map(b=>b.name);
-  const ms=sets.filter(s=>main.includes(s.block)||(!s.block&&main.length)), msd=ms.filter(s=>s.done);
+  const l=LS.get(logKey(w.id))||{}, sets=l.sets||[], WB=workBlocks(w), main=WB.map(b=>b.name), restN=new Set(WB.flatMap(b=>b.items||[]).filter(isRestItem).map(i=>i.exercise));
+  const ms=sets.filter(s=>(main.includes(s.block)||(!s.block&&main.length))&&!restN.has(s.exercise)), msd=ms.filter(s=>s.done);
   const ru=l.run||{}, run=isRun(w), mins=ru.duration_min!=null?Math.round(ru.duration_min):(l.started_at&&l.finished_at?Math.round((new Date(l.finished_at)-new Date(l.started_at))/6e4):null);
-  const kg=msd.reduce((a,s)=>{ const v=+s.load_done||0, r=num(s.reps_done)||0, m=/2×/.test(s.load_unit||'')?2:1; return a+v*r*m; },0);
+  const kg=msd.filter(s=>!isRepsU(s.load_unit)).reduce((a,s)=>{ const v=+s.load_done||0, r=num(s.reps_done)||0, m=/2×/.test(s.load_unit||'')?2:1; return a+v*r*m; },0);
   const stat=(a,b)=>`<div class="stat"><div class="num">${a}</div><div class="s">${b}</div></div>`;
   const pace=ru.duration_min&&ru.distance_km?fmt(ru.duration_min*60/ru.distance_km):'–';
   const bigTxt=run?(ru.distance_km!=null?esc(String(ru.distance_km).replace('.',','))+' km':'Gelopen')+(l.rpe!=null?' · RPE '+esc(l.rpe):''):[mins?mins+' min':'',l.rpe!=null?'RPE '+esc(l.rpe):''].filter(Boolean).join(' · ')||'Gedaan';
@@ -395,7 +400,7 @@ function viewPreview(w,tab){
     subHead('Voorvertoning', w.title, back);
     if(T.length>1) hd.insertAdjacentHTML('beforeend',`<div class="tabs" data-noswipe>${T.map((t,i)=>`<button class="${i===ti?'on':''}" data-ptab="${t.key}">${esc(t.label)}</button>`).join('')}</div>`);
     if(cur) h+=`<div class="card exs pv">${cur.block.items.map(it=>{ const u=it.load_unit||'kg', u2=u.replace(/\s*kg$/,'').trim();
-      const load=it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':it.load_default!=null?(u2?u2+' ':'')+it.load_default+' kg':'';
+      const load=isRepsU(u)?'':it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':it.load_default!=null?(u2?u2+' ':'')+it.load_default+' kg':'';
       const reps=it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'';
       return `<div class="li"><span class="sp"><b>${esc(it.exercise)}</b>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</span><span class="pvr">${esc(reps)}${load?`<small>${esc(load)}</small>`:''}</span></div>`; }).join('')}</div>`;
     if(main&&w.rest_sec) h+=`<div class="hint">Rust tussen rondes ${fmt(w.rest_sec)}</div>`;
@@ -430,18 +435,20 @@ function viewWorkout(w,tab){
   let h=w.amrap_min&&main?amrapCard(w,l):'';
   const nr=LS.get('nextRound',null); if(nr&&nr.id===w.id&&cur&&cur.key===nr.fromKey&&!firstOpen){ h+=`<div class="card hero" style="text-align:center"><div class="lbl">${esc(nr.from)} klaar</div><div class="big" style="font-size:40px;margin:8px 0">Verder met ${esc(nr.label)}</div><button class="btn" id="gonext">▶ Verder met ${esc(nr.label)}</button></div>`; }
   h+='<div class="card exs">';
-  sets.forEach(({it,k})=>{ const s=l.sets[k]; const hasLoad=it.load_range||it.load_default!=null; const def=itemDur(it);
-    const unit=it.load_unit||'kg', u2=unit.replace(/\s*kg$/,'').trim();
-    const loadTxt=hasLoad?((u2?u2+'':'')+(s.load_done!=null?s.load_done:'')+' kg'):'';
-    const sub=def?(LS.get(itKey(w,k))&&LS.get(itKey(w,k)).start?'Loopt':''):[it.reps?(main&&s.reps_done?s.reps_done:it.reps)+(/^\d+$/.test(String(main&&s.reps_done?s.reps_done:it.reps))?' reps':''):'',loadTxt||(it.load_range?it.load_range.join('–')+' kg':'')].filter(Boolean).join(' · ');
+  sets.forEach(({it,k})=>{ const s=l.sets[k]; const hasLoad=!!(it.load_range||it.load_default!=null||(it.load_unit&&!it.duration_sec)); const def=itemDur(it); // v15.1: ook zonder startwaarde, en in elk blok (superset)
+    const hasReps=!!(it.reps_range||it.reps_default!=null); if(hasReps&&!s.done&&num(s.reps_done)==null&&it.reps_default!=null)s.reps_done=String(it.reps_default); // v15.1: reps_* = eigen reps-stepper
+    const unit=it.load_unit||'kg', rc=isRepsU(unit), u2=rc?'':unit.replace(/\s*kg$/,'').trim(); if(rc&&!isRepsU(s.load_unit))s.load_unit='reps';
+    const loadTxt=hasLoad&&s.load_done!=null&&s.load_done!==''?(rc?(s.load_done!=null?s.load_done+' reps':''):((u2?u2+'':'')+(s.load_done!=null?s.load_done:'')+' kg')):'';
+    const sub=def?(LS.get(itKey(w,k))&&LS.get(itKey(w,k)).start?'Loopt':''):rc?(main&&s.load_done!=null?s.load_done+' reps':(it.reps?it.reps+' reps':'')):[it.reps?(main&&s.reps_done?s.reps_done:it.reps)+(/^\d+$/.test(String(main&&s.reps_done?s.reps_done:it.reps))?' reps':''):'',loadTxt||(it.load_range?it.load_range.join('–')+' kg':'')].filter(Boolean).join(' · ');
     h+=`<div class="ex ${s.done?'done':''} ${firstOpen&&firstOpen.k===k?'active':''}" data-ex="${esc(it.exercise)}" data-k="${k}"><div class="x" data-del="${esc(it.exercise)}">✕<small>Verwijder</small></div><div class="mv">`;
+ const ri=isRestItem(it);
     if(def&&!s.done){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false};
-      h+=`<div class="tim itimer" data-it="${k}"><button class="play ${x.run?'pause':''}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button><div class="sp" data-chk="${k}"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(sub)}</div></div>
+      h+=`<div class="tim itimer${ri?' ri':''}" data-it="${k}"><button class="play ${x.run?'pause':''}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button><div class="sp" data-chk="${k}"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(sub)}</div></div>
        <button class="clock itl" data-iset="${k}" aria-label="tijd wijzigen">${fmt(Math.ceil(x.left))}</button>${st&&st.start?`<button class="rs" data-ir="${k}" aria-label="reset">↺</button>`:''}</div>`; }
-    else h+=`<div class="exr" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc([it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'',it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?loadTxt:''].filter(Boolean).join(' · '))}</div>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
-    if(main&&!def&&firstOpen&&firstOpen.k===k){ const rn=num(s.reps_done), pv=prevLoad(w,it.exercise);
-      h+=`<div class="steps">${hasLoad?`<div class="step"><button data-w="${k}" data-d="-1" aria-label="minder gewicht" ${+s.load_done<=0?'disabled':''}>−</button><button class="v" data-wt="${k}">${esc(u2?u2:'')}${s.load_done??'–'} kg</button><button data-w="${k}" data-d="1" aria-label="meer gewicht">+</button></div>`:''}
-       <div class="step" ${hasLoad?'':'style="grid-column:1/-1"'}><button data-r="${k}" data-d="-1" aria-label="minder reps" ${rn==null||rn<=0?'disabled':''}>−</button><button class="v" data-reps="${k}">${esc(s.reps_done||'–')}</button><button data-r="${k}" data-d="1" aria-label="meer reps" ${rn==null?'disabled':''}>+</button></div></div>${pv&&hasLoad?`<div class="prev">Vorige keer ${pv.v} kg</div>`:''}`; }
+    else h+=`<div class="exr${ri?' ri':''}" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(ri?fmt(def):hasReps?[s.reps_done?s.reps_done+(/^\d+$/.test(String(s.reps_done))?' reps':''):'',loadTxt].filter(Boolean).join(' · '):rc?(it.reps?it.reps+' reps':''):[it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'',it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?loadTxt:''].filter(Boolean).join(' · '))}</div>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
+    if(!def&&!s.done&&((hasLoad||hasReps)||(main&&firstOpen&&firstOpen.k===k))){ const rn=num(s.reps_done), pv=prevLoad(w,it.exercise); // v15.1: elk open set-item met load/reps toont direct zijn steppers
+      h+=`<div class="steps">${hasLoad?`<div class="step" ${rc?'style="grid-column:1/-1"':''}><button data-w="${k}" data-d="-1" aria-label="${rc?'minder reps':'minder gewicht'}" ${+s.load_done<=0?'disabled':''}>−</button><button class="v" data-wt="${k}">${esc(u2?u2:'')}${s.load_done??'–'} ${rc?'reps':'kg'}</button><button data-w="${k}" data-d="1" aria-label="${rc?'meer reps':'meer gewicht'}">+</button></div>`:''}
+       ${rc?'':`<div class="step" ${hasLoad?'':'style="grid-column:1/-1"'}><button data-r="${k}" data-d="-1" aria-label="minder reps" ${rn==null||rn<=0?'disabled':''}>−</button><button class="v" data-reps="${k}">${esc(s.reps_done||'–')}${hasReps&&num(s.reps_done)!=null&&/^\d+$/.test(String(s.reps_done))?' reps':''}</button><button data-r="${k}" data-d="1" aria-label="meer reps" ${rn==null?'disabled':''}>+</button></div>`}</div>${pv&&hasLoad?`<div class="prev">Vorige keer ${pv.v} ${rc?'reps':'kg'}</div>`:''}`; }
     h+='</div></div>'; });
   h+='</div>';
   if(sets.length&&!localStorage.getItem('swipeHint')){ localStorage.setItem('swipeHint','1'); sessionStorage.setItem('swipeHintS','1'); } // alleen de eerste sessie
@@ -472,10 +479,11 @@ function viewWorkout(w,tab){
       LS.set(key,st); return viewWorkout(w,cur.key); }
     if(d.ir!=null){ const st=LS.get(itKey(w,d.ir)); if(st)LS.set(itKey(w,d.ir),{dur:st.dur,start:0,pausedAt:0,pausedTotal:0}); return viewWorkout(w,cur.key); }
     if(d.iset!=null) return pickDur(d.iset);
-    if(d.w!=null){ const s=l.sets[d.w], it=cur.block.items.find(i=>sameEx(i.exercise,s.exercise)); const st=it.load_step||2.5; s.load_done=Math.max(0,Math.round(((+s.load_done||0)+st*d.d)*10)/10); saveLog(l); return viewWorkout(w,cur.key); }
-    if(d.r!=null){ const s=l.sets[d.r]; const n=num(s.reps_done); if(n==null)return; s.reps_done=String(Math.max(0,n+(+d.d))); saveLog(l); return viewWorkout(w,cur.key); }
-    if(d.wt!=null){ const s=l.sets[d.wt]; const v=prompt('Gewicht in kg',s.load_done??''); if(v!==null&&v.trim()!==''&&!isNaN(+v.replace(',','.'))){s.load_done=+v.replace(',','.');saveLog(l);} return viewWorkout(w,cur.key); }
-    if(d.reps!=null){ const s=l.sets[d.reps]; const v=prompt('Reps gedaan',s.reps_done); if(v!==null){s.reps_done=v.trim();saveLog(l);} return viewWorkout(w,cur.key); }
+    if(d.w!=null){ const s=l.sets[d.w], it=cur.block.items.find(i=>sameEx(i.exercise,s.exercise)); s.touched=true; const st=it.load_step||(isRepsU(it.load_unit)?1:2.5); s.load_done=Math.max(0,Math.round(((+s.load_done||0)+st*d.d)*10)/10); saveLog(l); return viewWorkout(w,cur.key); }
+    if(d.r!=null){ const s=l.sets[d.r], it=cur.block.items.find(i=>sameEx(i.exercise,s.exercise))||{}, rr=it.reps_range; s.touched=true; let n=num(s.reps_done); if(n==null)n=it.reps_default!=null?+it.reps_default:null; if(n==null)return;
+      let v=n+(+d.d)*(+it.reps_step||1); v=Math.max(rr?+rr[0]:0,Math.min(rr?+rr[1]:1e4,v)); s.reps_done=String(v); saveLog(l); return viewWorkout(w,cur.key); }
+    if(d.wt!=null){ const s=l.sets[d.wt]; s.touched=true; const v=prompt(isRepsU(s.load_unit)?'Aantal reps':'Gewicht in kg',s.load_done??''); if(v!==null&&v.trim()!==''&&!isNaN(+v.replace(',','.'))){s.load_done=+v.replace(',','.');saveLog(l);} return viewWorkout(w,cur.key); }
+    if(d.reps!=null){ const s=l.sets[d.reps]; s.touched=true; const v=prompt('Reps gedaan',s.reps_done); if(v!==null){s.reps_done=v.trim();saveLog(l);} return viewWorkout(w,cur.key); }
     if(d.am){ l.amrap_rounds=Math.max(0,(l.amrap_rounds||0)+(+d.am)); saveLog(l); return viewWorkout(w,cur.key); }
     if(b.id==='amgo'){ unlockAudio(); wake(); const k='run:'+w.id; if(!LS.get(k))LS.set(k,{start:Date.now(),pausedAt:0,pausedTotal:0}); return viewWorkout(w,cur.key); }
     if(b.id==='reset'){ if(confirm('Alle voortgang van deze workout wissen?')){ localStorage.removeItem(logKey(w.id)); Object.keys(localStorage).filter(x=>x.startsWith('it:'+w.id+':')).forEach(x=>localStorage.removeItem(x)); localStorage.removeItem('run:'+w.id); saveLog(getLog(w)); viewWorkout(w); } return; }
@@ -514,7 +522,7 @@ function undoToast(txt,undo){ document.querySelectorAll('.utoast').forEach(x=>x.
 
 /* ---------- aanpassingen (stem / swipe): override lokaal + veilig naar plan van de trainer ---------- */
 function itemsOf(w){ const m={}; (w.blocks||[]).forEach(b=>b.items.forEach(i=>{ m[i.exercise]=i; })); return m; }
-const itemTxt=i=>[i.reps&&(i.reps+(/^\d+$/.test(String(i.reps))?' reps':'')),i.load_default!=null&&((i.load_unit&&/2×/.test(i.load_unit)?'2×':'')+i.load_default+' kg'),i.load_range&&i.load_range.join('–')+' kg',i.duration_sec&&fmt(i.duration_sec)].filter(Boolean).join(' · ');
+const itemTxt=i=>isRepsU(i.load_unit)?[i.load_default!=null?i.load_default+' reps':i.reps&&i.reps+' reps',i.duration_sec&&fmt(i.duration_sec)].filter(Boolean).join(' · '):[i.reps&&(i.reps+(/^\d+$/.test(String(i.reps))?' reps':'')),i.load_default!=null&&((i.load_unit&&/2×/.test(i.load_unit)?'2×':'')+i.load_default+' kg'),i.load_range&&i.load_range.join('–')+' kg',i.duration_sec&&fmt(i.duration_sec)].filter(Boolean).join(' · ');
 function diffWorkouts(a,b){ const A=itemsOf(a), B=itemsOf(b), d={verwijderd:[],gewijzigd:[],toegevoegd:[]};
   for(const k in A){ if(!B[k])d.verwijderd.push(k); else if(JSON.stringify(A[k])!==JSON.stringify(B[k]))d.gewijzigd.push({exercise:k,voor:itemTxt(A[k]),na:itemTxt(B[k])}); }
   for(const k in B) if(!A[k])d.toegevoegd.push({exercise:k,na:itemTxt(B[k])});
@@ -733,8 +741,8 @@ function viewProg(k){ appHead('progressie'); k=k==='hardlopen'?'hardlopen':(k||L
     const ex=Object.keys(data).sort((a,b)=>meta[b].length-meta[a].length);
     if(!ex.length) h+=`<div class="card mu">Nog geen afgevinkte sets met gewicht. Na je eerste krachttraining verschijnt hier je progressie.</div>`;
     ex.forEach((e,ei)=>{ const wks=Object.keys(data[e]).sort().slice(-8), vals=wks.map(x=>data[e][x]), mx=Math.max(...vals), mn=Math.min(...vals), lastV=vals[vals.length-1], delta=lastV-vals[0];
-      const two=/2×/.test((meta[e].slice(-1)[0]||{}).u||'');
-      h+=`<div class="card"><div class="row"><div class="sp"><div class="lbl">${esc(e)}</div><div class="num" style="font-size:${ei?30:40}px">${two?'2×':''}${lastV} kg</div></div><div class="${delta>0?'ok':'mu'}">${delta>0?'▲ +'+Math.round(delta*10)/10+' kg':delta<0?'▼ '+Math.round(delta*10)/10+' kg':'='}</div></div>
+      const two=/2×/.test((meta[e].slice(-1)[0]||{}).u||''), U=isRepsU((meta[e].slice(-1)[0]||{}).u)?'reps':'kg';
+      h+=`<div class="card"><div class="row"><div class="sp"><div class="lbl">${esc(e)}</div><div class="num" style="font-size:${ei?30:40}px">${two?'2×':''}${lastV} ${U}</div></div><div class="${delta>0?'ok':'mu'}">${delta>0?'▲ +'+Math.round(delta*10)/10+' '+U:delta<0?'▼ '+Math.round(delta*10)/10+' '+U:'='}</div></div>
        <div class="bars" style="height:${ei?70:110}px">${vals.map((v,i)=>`<div class="${i===vals.length-1?'hi':''}" style="height:${mx===mn?60:15+85*(v-mn)/(mx-mn)}%"></div>`).join('')}</div>
        <div class="axis">${wks.map(x=>`<span>wk ${+x.split('-W')[1]}</span>`).join('')}</div></div>`; });
   } else h+=runProgress();
