@@ -21,19 +21,20 @@ const tab=await p.evaluate(()=>tabsOf(byId('2026-10-20-boven')).find(t=>t.block.
 await p.evaluate(t=>location.hash='#w/2026-10-20-boven/'+t,tab);await p.waitForSelector('main .exs',{timeout:4000}).catch(async e=>{console.log('DBG',tab,await p.evaluate(()=>[location.hash,(document.querySelector('#app')||{}).innerHTML]),errs);throw e;});await p.waitForTimeout(300);
 await p.screenshot({path:S+'v151-superset1.png'});
 const m=await p.evaluate(()=>{const ex=[...document.querySelectorAll('main .ex')],bar=document.querySelector('#bar').getBoundingClientRect();
-  return {n:ex.length,ri:[...document.querySelectorAll('main .ri')].map(e=>Math.round(e.getBoundingClientRect().height)),visible:ex.filter(e=>e.getBoundingClientRect().bottom<=bar.top+1).length,
+  return {n:ex.length,ri:[...document.querySelectorAll('main .rbar')].map(e=>Math.round(e.getBoundingClientRect().height)),visible:ex.filter(e=>e.getBoundingClientRect().bottom<=bar.top+1).length,
     txt:document.querySelector('main .exs').innerText,steps:document.querySelectorAll('main [data-w]').length,repsStep:document.querySelectorAll('main [data-r]').length,stepTxt:(document.querySelector('main [data-wt]')||{}).textContent};});
 assert.strictEqual(m.n,8);assert.strictEqual(m.ri.length,2,'geen dunne rustrijen');assert.ok(m.ri.every(h=>h<=44),'rustrij niet dun: '+m.ri);
 assert.ok(m.visible>=4,'superset past niet bijna op één scherm: '+m.visible+'/8 zichtbaar');
 assert.ok(!/kg/.test(m.txt),'kg bij reps-items: '+m.txt);assert.strictEqual(m.stepTxt.trim(),'6 reps');assert.strictEqual(m.steps,12,'niet elk set-item heeft een reps-teller: '+m.steps);assert.strictEqual(m.repsStep,0,'dubbele reps-stepper');
-assert.ok(await p.$('main .ri .play'),'geen play-knop op rustrij');
+assert.ok(await p.$('main .rbar .rb .fill'),'geen rustbalkje');assert.strictEqual(await p.$$eval('main .ex:has(.steps) .sub',x=>x.length),0,'bereik-regel naast steppers');
 await p.click('main [data-w][data-d="1"]');await p.waitForTimeout(200);assert.strictEqual((await p.textContent('main [data-wt]')).trim(),'7 reps');
 await p.click('main .ex.active [data-chk]');await p.waitForTimeout(1500);
 const s=await p.evaluate(()=>JSON.parse(localStorage['log:2026-10-20-boven']).sets.find(x=>x.exercise==='Set 1: Pull-ups'));
 assert.deepStrictEqual([s.load_done,s.reps_done,s.load_unit,s.done],[7,'7','reps',true],'log-unit fout: '+JSON.stringify(s));
 const sent=posted.filter(x=>x.log&&x.log.workout_id==='2026-10-20-boven').pop();assert.ok(sent,'log niet verstuurd');const ss=sent.log.sets.find(x=>x.exercise==='Set 1: Pull-ups');assert.deepStrictEqual([ss.load_done,ss.reps_done,ss.load_unit],[7,'7','reps']);
+assert.strictEqual((await p.textContent('main .ex[data-ex="Set 2: Pull-ups"] [data-wt]')).trim(),'7 reps','reps-teller set 2 neemt set 1 niet over');
 // rustrij: play start de timer
-await p.click('main .ri .play');await p.waitForTimeout(1300);assert.match(await p.textContent('main .ri .clock'),/1:2\d/);
+await p.click('main .rbar .rb');await p.waitForTimeout(1300);assert.match(await p.textContent('main .rbar .itl'),/1:2\d/);assert.ok(parseFloat(await p.$eval('main .rbar .fill',e=>e.style.width))>0,'balkje loopt niet vol');await p.click('main .rbar .rb');await p.waitForTimeout(300);assert.ok(await p.$('main .rbar [data-ir]'),'geen reset na pauze');
 // Superset 2: kg-items houden kg + reps-stepper
 const t2=await p.evaluate(()=>tabsOf(byId('2026-10-20-boven')).find(t=>t.block.name==='Superset 2').key);await p.evaluate(t=>location.hash='#w/2026-10-20-boven/'+t,t2);await p.waitForTimeout(400);
 const st2=await p.evaluate(()=>{const a=document.querySelector('main .ex.active');const S=[...a.querySelectorAll('.step')];return {n:S.length,top:S.map(s=>Math.round(s.getBoundingClientRect().top)),h:S.map(s=>Math.round(s.getBoundingClientRect().height)),kg:a.querySelector('[data-wt]').textContent.trim(),reps:a.querySelector('[data-reps]').textContent.trim()};});
@@ -47,7 +48,7 @@ const sb=posted.filter(x=>x.log&&x.log.workout_id==='2026-10-20-boven').pop().lo
 // oud formaat (row, geen reps_*): kg-stepper + reps-stepper met de planwaarde
 const old=await p.evaluate(()=>{const a=document.querySelector('main .ex.active');return {nm:a.querySelector('.nm').textContent,kg:a.querySelector('[data-wt]').textContent.trim(),reps:a.querySelector('[data-reps]').textContent.trim()};});
 assert.deepStrictEqual(old,{nm:'Set 1: Eenarmige row',kg:'– kg',reps:'8 per kant'});
-const set2=await p.evaluate(()=>JSON.parse(localStorage['log:2026-10-20-boven']).sets.find(x=>x.exercise==='Set 2: Dumbbell bench press'));assert.deepStrictEqual([set2.load_done,set2.reps_done],[12,'8'],'reps_default niet als startwaarde');
+const set2=await p.evaluate(()=>JSON.parse(localStorage['log:2026-10-20-boven']).sets.find(x=>x.exercise==='Set 2: Dumbbell bench press'));assert.deepStrictEqual([set2.load_done,set2.reps_done],[14,'10'],'set 2 neemt gewicht van set 1 niet over / reps_default');assert.match(await p.textContent('main .ex[data-ex="Set 3: Dumbbell bench press"] [data-wt]'),/2×14 kg/);
 
 // alleen reps (geen load_*): reps-stepper zichtbaar
 const t3=await p.evaluate(()=>tabsOf(byId('2026-10-20-boven')).find(t=>t.block.name==='Superset 3').key);await p.evaluate(t=>location.hash='#w/2026-10-20-boven/'+t,t3);await p.waitForTimeout(400);

@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v15.1', APP_BUILD='volgas';
+const APP_VERSION='v15.2', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -125,6 +125,10 @@ function isMeaningful(l){ if(!l)return false; if(REAL_STATUS.includes(l.status))
   if(Object.values(l.run||{}).some(v=>v!=null&&v!==''))return true; if(Object.keys(l.feedback||{}).length||l.screenshot||l.amrap_rounds||(l.adjustments||[]).length)return true; return false; }
 function logTs(l){ if(!l)return ''; let t=l.updated_at||l.synced_at||l.finished_at||''; if(!t)(l.sets||[]).forEach(s=>{ if(s.ts&&s.ts>t)t=s.ts; }); return String(t); }
 // v15.1: load_unit 'reps' = de stepper telt herhalingen (geen kg). reps_done volgt de teller.
+// v15.2: 'Set N: X' neemt het gewicht van de vorige ingevulde set van X over (losjes gematcht op de naam na 'Set N:')
+const setOf=n=>{ const m=String(n||'').match(/^\s*set\s*(\d+)\s*[:.\-–]\s*(.+)$/i); return m?{n:+m[1],x:m[2].toLowerCase().replace(/\(.*?\)/g,'').replace(/[^a-z0-9]+/g,' ').trim()}:null; };
+function prevSetLoad(l,s,f='load_done'){ const me=setOf(s.exercise); if(!me||me.n<2)return null; let best=null;
+  (l.sets||[]).forEach(o=>{ const so=setOf(o.exercise); if(!so||so.n>=me.n||so.x!==me.x||!(o.touched||o.done)||o[f]==null||o[f]==='')return; if(!best||so.n>best.n)best={n:so.n,v:o[f]}; }); return best&&best.v; }
 const isRepsU=u=>/^\s*reps\s*$/i.test(String(u||''));
 const isRestItem=it=>!!(it&&it.duration_sec&&/^rust\b/i.test(String(it.exercise||''))&&it.load_range==null&&it.load_default==null);
 function saveLog(l,sync=true){ (l.sets||[]).forEach(s=>{ if(isRepsU(s.load_unit)&&s.load_done!=null&&s.load_done!=='')s.reps_done=String(s.load_done); }); l.updated_at=new Date().toISOString(); if(!l.profile_id)l.profile_id=(LS.get('profile',{}).id||'thijs'); const ac=ACC.active(); if(ac)l.account=ac.id; const q=new Set(LS.get('queue',[]));
@@ -402,7 +406,7 @@ function viewPreview(w,tab){
     if(cur) h+=`<div class="card exs pv">${cur.block.items.map(it=>{ const u=it.load_unit||'kg', u2=u.replace(/\s*kg$/,'').trim();
       const load=isRepsU(u)?'':it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':it.load_default!=null?(u2?u2+' ':'')+it.load_default+' kg':'';
       const reps=it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'';
-      return `<div class="li"><span class="sp"><b>${esc(it.exercise)}</b>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</span><span class="pvr">${esc(reps)}${load?`<small>${esc(load)}</small>`:''}</span></div>`; }).join('')}</div>`;
+      return `<div class="li"><span class="sp"><b>${esc(it.exercise)}</b>${it.notes?`<div class="nt2">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</span><span class="pvr">${esc(reps)}${load?`<small>${esc(load)}</small>`:''}</span></div>`; }).join('')}</div>`;
     if(main&&w.rest_sec) h+=`<div class="hint">Rust tussen rondes ${fmt(w.rest_sec)}</div>`;
     hd.onclick=e=>{ const b=e.target.closest('[data-ptab]'); if(b) location.replace('#voorbeeld/'+w.id+'/'+b.dataset.ptab); };
   }
@@ -438,16 +442,20 @@ function viewWorkout(w,tab){
   const WBk=new Set(workBlocks(w)); // v15.1: elk set-item in een werkblok (ook alleen reps) krijgt een reps-stepper
   sets.forEach(({it,k})=>{ const s=l.sets[k]; const hasLoad=!!(it.load_range||it.load_default!=null||(it.load_unit&&!it.duration_sec)); const def=itemDur(it); // v15.1: ook zonder startwaarde, en in elk blok (superset)
     const hasReps=!!(it.reps_range||it.reps_default!=null); if(hasReps&&!s.done&&num(s.reps_done)==null&&it.reps_default!=null)s.reps_done=String(it.reps_default); // v15.1: reps_* = eigen reps-stepper
+    if(!s.touched&&!s.done){ const pl=prevSetLoad(l,s); if(pl!=null)s.load_done=pl; if(it.reps_range||it.reps_default!=null){ const pr=prevSetLoad(l,s,'reps_done'); if(pr!=null&&num(pr)!=null)s.reps_done=String(pr); } }
+    const stp=!def&&!s.done&&((hasLoad||hasReps||(it.reps&&WBk.has(cur.block)))||(main&&firstOpen&&firstOpen.k===k));
     const unit=it.load_unit||'kg', rc=isRepsU(unit), u2=rc?'':unit.replace(/\s*kg$/,'').trim(); if(rc&&!isRepsU(s.load_unit))s.load_unit='reps';
     const loadTxt=hasLoad&&s.load_done!=null&&s.load_done!==''?(rc?(s.load_done!=null?s.load_done+' reps':''):((u2?u2+'':'')+(s.load_done!=null?s.load_done:'')+' kg')):'';
     const sub=def?(LS.get(itKey(w,k))&&LS.get(itKey(w,k)).start?'Loopt':''):rc?(main&&s.load_done!=null?s.load_done+' reps':(it.reps?it.reps+' reps':'')):[it.reps?(main&&s.reps_done?s.reps_done:it.reps)+(/^\d+$/.test(String(main&&s.reps_done?s.reps_done:it.reps))?' reps':''):'',loadTxt||(it.load_range?it.load_range.join('–')+' kg':'')].filter(Boolean).join(' · ');
     h+=`<div class="ex ${s.done?'done':''} ${firstOpen&&firstOpen.k===k?'active':''}" data-ex="${esc(it.exercise)}" data-k="${k}"><div class="x" data-del="${esc(it.exercise)}">✕<small>Verwijder</small></div><div class="mv">`;
  const ri=isRestItem(it);
-    if(def&&!s.done){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false};
+    if(def&&!s.done&&ri){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false}, pct=Math.min(100,100*(1-x.left/dur));
+      h+=`<div class="itimer rbar${x.run?' run':''}" data-it="${k}" data-dur="${dur}"><button class="rb" data-ip="${k}" aria-label="${esc(it.exercise)}: ${x.run?'pauze':'start'}"><i class="fill" style="width:${pct}%"></i><span class="rn">${esc(it.exercise)}</span><span class="itl">${fmt(Math.ceil(x.left))}</span></button>${st&&st.start&&!x.run?`<button class="rs" data-ir="${k}" aria-label="reset">↺</button>`:''}</div>`; }
+    else if(def&&!s.done){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false};
       h+=`<div class="tim itimer${ri?' ri':''}" data-it="${k}"><button class="play ${x.run?'pause':''}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button><div class="sp" data-chk="${k}"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(sub)}</div></div>
        <button class="clock itl" data-iset="${k}" aria-label="tijd wijzigen">${fmt(Math.ceil(x.left))}</button>${st&&st.start?`<button class="rs" data-ir="${k}" aria-label="reset">↺</button>`:''}</div>`; }
-    else h+=`<div class="exr${ri?' ri':''}" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(ri?fmt(def):hasReps?[s.reps_done?s.reps_done+(/^\d+$/.test(String(s.reps_done))?' reps':''):'',loadTxt].filter(Boolean).join(' · '):rc?(it.reps?it.reps+' reps':''):[it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'',it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?loadTxt:''].filter(Boolean).join(' · '))}</div>${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
-    if(!def&&!s.done&&((hasLoad||hasReps||(it.reps&&WBk.has(cur.block)))||(main&&firstOpen&&firstOpen.k===k))){ const rn=num(s.reps_done), pv=prevLoad(w,it.exercise); // v15.1: elk open set-item met load/reps toont direct zijn steppers
+    else h+=`<div class="exr${ri?' ri':''}" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(it.exercise)}</div>${stp?'':`<div class="sub">${esc(ri?fmt(def):hasReps?[s.reps_done?s.reps_done+(/^\d+$/.test(String(s.reps_done))?' reps':''):'',loadTxt].filter(Boolean).join(' · '):rc?(it.reps?it.reps+' reps':''):[it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'',it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?loadTxt:''].filter(Boolean).join(' · '))}</div>`}${it.notes?`<div class="sub">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
+    if(stp){ const rn=num(s.reps_done), pv=prevLoad(w,it.exercise); // v15.1: elk open set-item met load/reps toont direct zijn steppers
       h+=`<div class="steps">${hasLoad?`<div class="step" ${rc?'style="grid-column:1/-1"':''}><button data-w="${k}" data-d="-1" aria-label="${rc?'minder reps':'minder gewicht'}" ${+s.load_done<=0?'disabled':''}>−</button><button class="v" data-wt="${k}">${esc(u2?u2:'')}${s.load_done??'–'} ${rc?'reps':'kg'}</button><button data-w="${k}" data-d="1" aria-label="${rc?'meer reps':'meer gewicht'}">+</button></div>`:''}
        ${rc?'':`<div class="step" ${hasLoad?'':'style="grid-column:1/-1"'}><button data-r="${k}" data-d="-1" aria-label="minder reps" ${rn==null||rn<=0?'disabled':''}>−</button><button class="v" data-reps="${k}">${esc(s.reps_done||'–')}${hasReps&&num(s.reps_done)!=null&&/^\d+$/.test(String(s.reps_done))?' reps':''}</button><button data-r="${k}" data-d="1" aria-label="meer reps" ${rn==null?'disabled':''}>+</button></div>`}</div>${pv&&hasLoad?`<div class="prev">Vorige keer ${pv.v} ${rc?'reps':'kg'}</div>`:''}`; }
     h+='</div></div>'; });
@@ -553,7 +561,7 @@ const itKey=(w,k)=>'it:'+w.id+':'+k;
 function itState(st){ if(!st)return null; const now=st.pausedAt||Date.now(); const el=Math.min(st.dur,st.start?(now-st.start-st.pausedTotal)/1000:0); return {el,left:st.dur-el,pct:100*el/st.dur,run:!!st.start&&!st.pausedAt&&el<st.dur}; }
 
 function tickItems(w,l,rerender){ document.querySelectorAll('.itimer').forEach(el=>{ const k=+el.dataset.it, st=LS.get(itKey(w,k)); const x=itState(st); if(!x)return;
-  el.querySelector('.itl').textContent=fmt(Math.ceil(x.left));
+  el.querySelector('.itl').textContent=fmt(Math.ceil(x.left)); const fl=el.querySelector('.fill'); if(fl&&st&&st.dur)fl.style.width=Math.min(100,100*(1-x.left/st.dur))+'%';
   if(x.left<=0&&!st.fired){ st.fired=true; LS.set(itKey(w,k),st); beep(); const card=el.closest('.ex'); card.classList.add('fin'); flash(card);
     const s=l.sets[k]; if(!s.done){ s.done=true; s.ts=new Date().toISOString(); saveLog(l); } setTimeout(rerender,1200); } }); }
 
@@ -919,6 +927,30 @@ function toast(t){ document.querySelectorAll('.toast').forEach(x=>x.remove()); c
 try{ if(localStorage.getItem('toastShownFor')!==APP_VERSION){ const first=!localStorage.getItem('toastShownFor'); localStorage.setItem('toastShownFor',APP_VERSION); if(!first)setTimeout(()=>toast('Bijgewerkt naar '+APP_VERSION),400); } }catch(e){}
 sessionStorage.removeItem('updated');
 
+/* ---------- pull-to-refresh (v15.2) ---------- */
+// alleen vanaf scrollTop 0, drempel ~70px; niet vanaf steppers, rustbalken, invoer of knoppen
+let swReg=null; if('serviceWorker' in navigator)navigator.serviceWorker.getRegistration().then(r=>{swReg=r;}).catch(()=>{});
+async function pullRefresh(){
+  try{ if(syncOn()){ await loadPlan(); await loadServerLogs(); await flush(); await writeOverrides(); } }catch(e){}
+  try{ const r=swReg||(navigator.serviceWorker&&await navigator.serviceWorker.getRegistration()); if(r){ await r.update(); if(r.waiting)r.waiting.postMessage({type:'SKIP_WAITING'}); } }catch(e){}
+  route();
+}
+(function(){
+  const PTR_T=70; let y0=null,dy=0,busy=false,el=null;
+  const ind=()=>{ if(!el){ el=document.createElement('div'); el.className='ptr'; el.setAttribute('aria-hidden','true'); el.innerHTML='<i></i>'; document.body.appendChild(el); } return el; };
+  const top=()=>(document.scrollingElement||document.documentElement).scrollTop<=0;
+  addEventListener('touchstart',e=>{ y0=null; dy=0; if(busy||e.touches.length!==1||!top())return;
+    if(e.target.closest('input,textarea,select,button,.step,.steps,.rbar,.itimer,[data-ip],[data-ir],.modal,dialog'))return;
+    y0=e.touches[0].clientY; },{passive:true});
+  addEventListener('touchmove',e=>{ if(y0==null)return; dy=e.touches[0].clientY-y0; if(dy<=0||!top()){ if(el)el.style.transform=''; return; }
+    const d=Math.min(dy*.5,60), p=ind(); p.classList.add('on'); p.classList.toggle('ready',dy>=PTR_T); p.style.transform='translate(-50%,'+d+'px)'; },{passive:true});
+  addEventListener('touchend',async()=>{ if(y0==null)return; const go=dy>=PTR_T&&top(); y0=null; dy=0; const p=el;
+    if(!go){ if(p){ p.classList.remove('on','ready'); p.style.transform=''; } return; }
+    busy=true; p.classList.add('spin'); p.style.transform='translate(-50%,40px)';
+    try{ await pullRefresh(); }finally{ busy=false; p.classList.remove('on','ready','spin'); p.style.transform=''; } },{passive:true});
+  addEventListener('touchcancel',()=>{ y0=null; dy=0; if(el&&!busy){ el.classList.remove('on','ready'); el.style.transform=''; } },{passive:true});
+})();
+
 /* ---------- start ---------- */
 if('serviceWorker' in navigator){
   const hadCtrl=!!navigator.serviceWorker.controller; let reloaded=false;
@@ -928,7 +960,7 @@ if('serviceWorker' in navigator){
     if(Date.now()-last<30000)return; reloaded=true; sessionStorage.setItem('swReloadAt',String(Date.now())); location.reload(); });
 }
 // lege lokale logs van oudere versies opruimen
-Object.keys(localStorage).filter(k=>k.startsWith('log:')).forEach(k=>{ if(!isMeaningful(LS.get(k)))localStorage.removeItem(k); });
+Object.keys(localStorage).filter(k=>k.startsWith('log:')).forEach(k=>{ const l=LS.get(k); if(!isMeaningful(l)&&!(l&&(l.sets||[]).some(x=>x&&x.touched)))localStorage.removeItem(k); });
 LS.set('queue',LS.get('queue',[]).filter(id=>isMeaningful(LS.get(logKey(id)))));
 syncLabel(); route(); loadPlan(); loadServerLogs().then(flush).then(()=>{ writeOverrides(); sendAftrap(); }); Voice.ping();
 if(!syncOn()) ACC.probe().then(ok=>{ if(ok) route(); });
