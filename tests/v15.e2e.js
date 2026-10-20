@@ -32,7 +32,7 @@ const hash=p=>p.evaluate(()=>location.hash);
 const E=BE({props:{TOKEN:M,INVITE_CODES:'VG-7K2P=Sam'}});seedThijs(E);
 let {c,p}=await ctx(b,E,{cfg:{API_URL:API,TOKEN:M}});
 await p.waitForFunction(()=>location.hash==='#wachtwoord',null,{timeout:20000});
-assert.match(await p.innerText('main'),/Kies een wachtwoord voor je account[\s\S]*Gebruikersnaam: thijs/i);assert.strictEqual(await p.$('header nav.tabs a'),null);
+assert.match(await p.innerText('main'),/Kies een wachtwoord voor je account[\s\S]*Gebruikersnaam/i);assert.strictEqual(await p.inputValue('#un'),'thijs');assert.strictEqual(await p.$('header nav.tabs a'),null);
 assert.ok(await p.evaluate(()=>document.querySelector('#micfab').hidden),'mic op wachtwoordscherm');
 const go=()=>p.evaluate(()=>document.querySelector('#go').disabled);
 await p.fill('#p','kort');assert.strictEqual(await go(),true);assert.match(await p.innerText('#sw'),/Zwak/);

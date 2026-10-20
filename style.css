@@ -311,3 +311,7 @@ html,body{overscroll-behavior-y:contain}
 .nt2{font-size:11px;opacity:.6;line-height:1.35}
 .ex .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;display:block;max-width:100%}
 .ex .exr>*,.ex .mv,.ex .exr{min-width:0}
+
+/* v15.3 visueel verborgen (sleutelhanger: geen display:none) */
+.vh{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important;border:0!important;opacity:0}
+.auth input[readonly]#un{opacity:.75}

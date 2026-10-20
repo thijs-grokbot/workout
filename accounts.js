@@ -39,7 +39,7 @@ const ACC=(()=>{
     store(a,remember); CFG.TOKEN=a.token; const c=LS.get('cfg',{}); if(c.TOKEN){ c.TOKEN=''; LS.set('cfg',c); } // master-token van dit toestel af
     localStorage.removeItem('loginName'); needsPw=false;
     LS.set('profile',{...LS.get('profile',{}),id:a.id,name:a.name||cap(a.id)}); if(a.trainer)LS.set('trainerFromPing',a.trainer);
-    if(aftrap){ LS.set('aftrapDone',0); location.replace('#aftrap/0'); } else { LS.set('aftrapDone',1); location.replace('#vandaag'); loadProfile(a.id); }
+    if(aftrap){ LS.set('aftrapDone',0); location.hash='#aftrap/0'; } else { LS.set('aftrapDone',1); location.hash='#vandaag'; loadProfile(a.id); }
     syncLabel(); loadPlan(); loadServerLogs().then(flush); Voice.ping(); }
   async function loadProfile(id){ try{ const r=await api('POST',null,{action:'readfile',path:'profiel/'+id+'-aftrap.json'}); const x=r&&r.ok&&r.json; if(!x)return;
     LS.set('profile',{...LS.get('profile',{}),id,aftrap:x.aftrap||LS.get('profile',{}).aftrap,trainer_name:x.trainer_name||LS.get('profile',{}).trainer_name}); softRoute(); }catch(e){} }
@@ -51,7 +51,7 @@ const ACC=(()=>{
   const errOf=x=>!x?ERR.net:ERR[x.code]||(/minimaal 8/.test(x.error||'')?'Minimaal 8 tekens.':x.error||ERR.net);
   /* ---------- schermen ---------- */
   const fld=(label,inp,{eye=false,err=''}={})=>`<label class="fl" for="${inp.id}">${label}</label><div class="fld${err?' err':''}">${inp.html}${eye?`<button type="button" class="eye" data-eye="${inp.id}" aria-label="Toon wachtwoord">${EYE}</button>`:''}</div>${err?`<div class="errt" role="alert">${esc(err)}</div>`:''}`;
-  const inp=(id,attrs,val='')=>({id,html:`<input id="${id}" name="${id}" ${attrs} value="${esc(val)}">`});
+  const inp=(id,attrs,val='',nm=id)=>({id,html:`<input id="${id}" name="${nm}" ${attrs} value="${esc(val)}">`});
   const authHead=(back)=>{ hd.innerHTML=`<div class="top">${back?`<a class="back" href="${back}" aria-label="Terug">‹</a>`:BRAND.replace('href="#vandaag"','href="#inloggen"')}</div>`; };
   function wire(form,submit){ // oogjes, enter, knop boven toetsenbord, dubbel tikken
     form.addEventListener('click',e=>{ const b=e.target.closest('[data-eye]'); if(!b)return; const i=form.querySelector('#'+b.dataset.eye), s=i.selectionStart, show=i.type==='password';
@@ -61,14 +61,14 @@ const ACC=(()=>{
     const vv=window.visualViewport; if(vv){ const f=()=>{ const kb=Math.max(0,innerHeight-vv.height-vv.offsetTop); bar.style.bottom=kb?kb+'px':''; }; vv.addEventListener('resize',f); vv.addEventListener('scroll',f); KBF=()=>{ vv.removeEventListener('resize',f); vv.removeEventListener('scroll',f); bar.style.bottom=''; }; } }
   let KBF=null; function leave(){ if(KBF){ KBF(); KBF=null; } busy=false; }
   function setBusy(on,label,busyLabel){ busy=on; const b=bar.querySelector('button'); if(!b)return; b.disabled=on; b.style.opacity=on?'.75':''; b.innerHTML=on?`<span class="spin"></span>${busyLabel}`:label;
-    app.querySelectorAll('input').forEach(i=>i.readOnly=on); }
+    app.querySelectorAll('input:not(#un)').forEach(i=>i.readOnly=on); }
   function viewLogin(st={}){
     authHead(sessionStorage.getItem('addAcct')&&active()?'#vandaag':''); const name=st.name??(j('loginName')||'');
     app.innerHTML=`<form id="af" class="auth" autocomplete="on" novalidate><div class="q">Inloggen</div>
-      ${fld('Gebruikersnaam',inp('u','type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" required',name))}
-      ${fld('Wachtwoord',inp('p','type="password" autocomplete="current-password" autocapitalize="off" enterkeyhint="go" required'),{eye:true,err:st.err})}
+      ${fld('Gebruikersnaam',inp('u','type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" required',name,'username'))}
+      ${fld('Wachtwoord',inp('p','type="password" autocomplete="current-password" autocapitalize="off" enterkeyhint="go" required','','password'),{eye:true,err:st.err})}
       <label class="tgrow"><span class="sp">Ingelogd blijven</span><input type="checkbox" class="tg" id="rem" ${st.rem===false?'':'checked'}></label>
-      <button type="submit" hidden></button></form>`;
+      <button type="submit" class="vh" tabindex="-1" aria-hidden="true"></button></form>`;
     setBar(`<a class="lnk" href="#registreren">Ik heb een uitnodiging</a><button class="btn" type="submit" form="af" id="go">Inloggen</button>`);
     const f=app.querySelector('#af'), u=f.querySelector('#u'), p=f.querySelector('#p');
     u.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); p.focus(); } });
@@ -83,10 +83,10 @@ const ACC=(()=>{
     authHead('#inloggen'); const v=st.v||{};
     app.innerHTML=`<form id="af" class="auth" autocomplete="on" novalidate><div class="q">Je uitnodiging</div>
       ${fld('Uitnodigingscode',inp('c','type="text" autocomplete="one-time-code" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next"',v.c||''),{err:st.f==='c'?st.err:''})}
-      ${fld('Gebruikersnaam',inp('u','type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" maxlength="20"',v.u||''),{err:st.f==='u'?st.err:''})}
-      ${fld('Wachtwoord',inp('p','type="password" autocomplete="new-password" autocapitalize="off" minlength="8" enterkeyhint="go"'),{eye:true,err:st.f==='p'?st.err:''})}
+      ${fld('Gebruikersnaam',inp('u','type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" maxlength="20"',v.u||'','username'),{err:st.f==='u'?st.err:''})}
+      ${fld('Wachtwoord',inp('p','type="password" autocomplete="new-password" autocapitalize="off" minlength="8" enterkeyhint="go"','','new-password'),{eye:true,err:st.f==='p'?st.err:''})}
       <label class="cons"><input type="checkbox" id="ok" class="cb"><span>${CONSENT}</span></label>${st.f==='x'?`<div class="errt" role="alert">${esc(st.err)}</div>`:''}
-      <button type="submit" hidden></button></form>`;
+      <button type="submit" class="vh" tabindex="-1" aria-hidden="true"></button></form>`;
     setBar(`<button class="btn" type="submit" form="af" id="go" disabled>Account maken</button>`);
     const f=app.querySelector('#af'), go=bar.querySelector('#go'), ok=f.querySelector('#ok');
     ok.onchange=()=>{ go.disabled=!ok.checked; };
@@ -104,12 +104,12 @@ const ACC=(()=>{
   const SW=['','Zwak','Matig','Sterk','Heel sterk'];
   function viewSetPw(){
     const id=needsPw||PROFILE().id||'thijs'; authHead('');
-    app.innerHTML=`<form id="af" class="auth" novalidate><div class="q" style="font-size:36px">Kies een wachtwoord voor je account</div><div class="hint2">Gebruikersnaam: <b>${esc(id)}</b></div>
-      <input type="text" name="username" autocomplete="username" value="${esc(id)}" hidden readonly>
-      ${fld('Wachtwoord',inp('p','type="password" autocomplete="new-password" autocapitalize="off" minlength="8" enterkeyhint="next"'),{eye:true})}
+    app.innerHTML=`<form id="af" class="auth" novalidate><div class="q" style="font-size:36px">Kies een wachtwoord voor je account</div>
+      ${fld('Gebruikersnaam',inp('un','type="text" autocomplete="username" autocapitalize="off" readonly',id,'username'))}
+      ${fld('Wachtwoord',inp('p','type="password" autocomplete="new-password" autocapitalize="off" minlength="8" enterkeyhint="next"','','new-password'),{eye:true})}
       <div class="sbar" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="sw" id="sw" aria-live="polite"></div>
-      ${fld('Herhaal wachtwoord',inp('p2','type="password" autocomplete="new-password" autocapitalize="off" enterkeyhint="go"'),{eye:true})}<div class="sw" id="eq" aria-live="polite"></div><div class="errt" id="er" hidden></div>
-      <button type="submit" hidden></button></form>`;
+      ${fld('Herhaal wachtwoord',inp('p2','type="password" autocomplete="new-password" autocapitalize="off" enterkeyhint="go"','','new-password-confirm'),{eye:true})}<div class="sw" id="eq" aria-live="polite"></div><div class="errt" id="er" hidden></div>
+      <button type="submit" class="vh" tabindex="-1" aria-hidden="true"></button></form>`;
     setBar(`<button class="btn" type="submit" form="af" id="go" disabled>Opslaan</button>`);
     const f=app.querySelector('#af'), p=f.querySelector('#p'), p2=f.querySelector('#p2'), go=bar.querySelector('#go');
     const upd=()=>{ const s=strength(p.value); f.querySelectorAll('.sbar span').forEach((b,i)=>b.className=i<s?(s<2?'w':'on'):'');

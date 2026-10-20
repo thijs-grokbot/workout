@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v15.2', APP_BUILD='volgas';
+const APP_VERSION='v15.3', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
