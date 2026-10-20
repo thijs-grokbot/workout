@@ -4,7 +4,7 @@
 const ACC=(()=>{
   const DEVICE=['accounts','acct','cfg','weekOff','progTab','swipeHint','accountsApi','loginName'];
   const AUTH_VIEWS=['inloggen','registreren','wachtwoord'];
-  const CONSENT='Je gegevens staan in de Google Drive van Thijs en spraakopnames gaan naar Google voor spraakherkenning.';
+  const CONSENT='Je gegevens staan in de Google Drive van Thijs en spraakopnames gaan naar Google voor spraakherkenning. Vrienden zien alleen je kerncijfers, en pas als je delen aanzet.'; // v16-1
   const EYE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   const EYEX=EYE.replace('</svg>','<path d="M3 3l18 18"/></svg>');
   const j=k=>{ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } };
@@ -20,7 +20,7 @@ const ACC=(()=>{
   async function probe(){ if(!CFG.API_URL)return false; try{ const r=await fetch(CFG.API_URL+'?action=ping&_='+Date.now(),{redirect:'follow',credentials:'omit'}); const x=JSON.parse(await r.text());
       put('accountsApi',!!(x&&x.accounts)); return !!(x&&x.accounts); }catch(e){ return apiOk(); } }
   // uitslag van de gewone ping (met token)
-  function onPing(x){ if(!x)return; if(x.accounts) put('accountsApi',true);
+  function onPing(x){ if(!x)return; if(x.accounts) put('accountsApi',true); put('friendsApi',!!x.friends);
     if(x.accounts&&mode()==='token'&&x.admin&&x.needs_password&&x.user){ needsPw=x.user; if(!AUTH_VIEWS.includes(view())) location.replace('#wachtwoord'); }
     if(x.accounts&&mode()==='account'&&x.user){ const a=active(); if(a&&(a.name!==x.name||a.trainer!==x.trainer)) store({...a,name:x.name||a.name,trainer:x.trainer||a.trainer},!sess()); } }
   function onUnauthorized(){ const a=active(); if(!a)return; // verlopen of ingetrokken: naar Inloggen met naam ingevuld; wachtrij en lokale logs blijven staan

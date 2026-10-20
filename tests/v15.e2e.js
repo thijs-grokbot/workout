@@ -82,7 +82,7 @@ await p.click('#go');await p.waitForFunction(()=>location.hash==='#aftrap/0',nul
 assert.match(await p.innerText('body'),/Aftrap[\s\S]*persoonlijke trainer/i);await p.screenshot({path:S+'v15-06-naar-aftrap.png'});
 st=await p.evaluate(()=>({logs:Object.keys(localStorage).filter(k=>k.startsWith('log:')),plan:JSON.parse(localStorage.plan||'[]').length,acc:JSON.parse(localStorage.accounts).map(a=>a.id).sort(),cur:ACC.active().id,prof:JSON.parse(localStorage.profile)}));
 assert.deepStrictEqual(st.logs,[],'sanne ziet logs van thijs (lokaal)');assert.strictEqual(st.plan,0,'sanne ziet plan van thijs');assert.deepStrictEqual(st.acc,['sanne','thijs']);assert.strictEqual(st.cur,'sanne');assert.strictEqual(st.prof.id,'sanne');
-assert.ok(JSON.parse(E.PROPS.USER_sanne).consent.text_version==='v15-1');
+assert.ok(JSON.parse(E.PROPS.USER_sanne).consent.text_version==='v16-1');
 // sanne rondt de aftrap af (kort), logt iets; dat komt in users/sanne
 await p.evaluate(()=>{localStorage.aftrapDone='1';location.hash='#vandaag';});await p.waitForTimeout(400);
 E.post({action:'writeplan',token:M,u:'sanne',week:'2026-W42',workouts:[{id:'2026-10-15-s-z2',date:'2026-10-15',type:'run_z2',title:'Zone 2 · 30 min',duration_min:30}]});
@@ -91,7 +91,7 @@ assert.ok(E.tree()['users/sanne/logs/2026-10-15_2026-10-15-s-z2.json'],'log sann
 // ===== E) profiel-sheet + wisselen
 await p.click('#avbtn');await p.waitForTimeout(250);const sh=await p.innerText('.sheet');
 assert.match(sh,/SANNE[\s\S]*sanne · trainer Sam/i);assert.match(sh,/Thijs Hogeveen[\s\S]*trainer Mike/);assert.strictEqual((sh.match(/Sanne/gi)||[]).length,2,'huidig account dubbel in de sheet: '+sh);
-assert.match(sh,/Account toevoegen/);assert.match(sh,/Koppeling/);assert.match(sh,/Versie[\s\S]*v15/);assert.match(sh,/Uitloggen/);
+assert.match(sh,/Account toevoegen/);assert.match(sh,/Koppeling/);assert.match(sh,/Versie[\s\S]*v1[56]/);assert.match(sh,/Uitloggen/);
 await p.screenshot({path:S+'v15-08-profiel-sheet.png'});
 await p.click('[data-acc="thijs"]');await p.waitForTimeout(1500);assert.strictEqual(await p.evaluate(()=>ACC.active().id),'thijs');
 assert.strictEqual((await logIds(p)).length,4);assert.ok(!(await logIds(p)).some(k=>/s-z2/.test(k)),'thijs ziet log van sanne');

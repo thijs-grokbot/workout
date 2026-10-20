@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='v15.3', APP_BUILD='volgas';
+const APP_VERSION='v16', APP_BUILD='volgas';
 const VLABEL=APP_VERSION+' · '+APP_BUILD;
 const CFG = Object.assign({}, window.CONFIG || {});
 function applyStoredCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem('cfg')||'{}')||{}; }catch(e){}
@@ -287,6 +287,7 @@ function route(){
   if(v==='week'){ viewWeek(); return Voice.after(v); }
   if(v==='progressie'){ viewProg(arg); return Voice.after(v); }
   if(v==='reeks'){ viewStreak(); return Voice.after(v); }
+  if(v==='vrienden'){ if(!FRIENDS.on()){ location.replace('#vandaag'); return; } FRIENDS.view(arg); return; }
   if(v==='voorbeeld'){ viewPreview(byId(arg),tab); return Voice.after(v,arg,tab); }
   if(v==='w'){ const w=byId(arg); if(w&&w.type==='rest'&&!tab){ viewRestDay(w); return Voice.after(v,arg,tab); } viewWorkout(w,tab); return Voice.after(v,arg,tab); }
   viewToday(); Voice.after('vandaag'); checkMilestone();
@@ -344,7 +345,7 @@ function morgenLink(n){ if(!n)return ''; const d=durOf(n), tom=n.date===tomorrow
 function viewToday(){
   appHead('vandaag'); const t=today();
   const unl=!syncOn()?`<a class="card row" href="#instellingen" style="border:2px solid var(--ac)"><span class="sp"><b>Niet gekoppeld</b><div class="mu" style="font-size:14px">Tik om te koppelen met ${esc(TRAINER())}</div></span><span class="chip part">Koppel</span></a>`:'';
-  if(!PLAN.length){ app.innerHTML=unl+`<div class="lbl">${esc(longDate(t))}</div><h1>Nog geen plan</h1><p class="mu">Er is nog geen workout geladen.</p>`; return; }
+  if(!PLAN.length){ app.innerHTML=unl+`<div class="lbl">${esc(longDate(t))}</div><h1>Nog geen plan</h1><p class="mu">Er is nog geen workout geladen.</p>`+FRIENDS.card(); return; }
   const todays=PLAN.filter(w=>w.date===t); let w=todays[0], ey=longDate(t);
   if(!w){ w=PLAN.find(x=>x.date>t); if(w) ey='Eerstvolgende · '+longDate(w.date); }
   let h=unl+`<div class="lbl" style="margin-bottom:10px">${esc(cap(ey))} · week ${wkNo(t)}${offlineTag()}</div>`;
@@ -355,7 +356,7 @@ function viewToday(){
   // v15 audit: geen Morgen-kaart (tab ernaast), geen vaste trainersregel (alleen bij nieuws), geen versie (staat in het profiel), reeks één keer onderaan
   const lastAdj=Object.values(LS.get('overrides',{})).filter(o=>o.workout.date>=t).sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0];
   if(lastAdj) h+=mikeline(esc(TRAINER())+' heeft je training aangepast op jouw wens');
-  app.innerHTML=h+streakCard(t); scrollChain();
+  app.innerHTML=h+streakCard(t)+FRIENDS.card(); scrollChain();
   const st=app.querySelector('#start'); if(st) st.onclick=()=>{unlockAudio();LS.set('training',1);wake();};
 }
 /* ---------- Morgen ---------- */

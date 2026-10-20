@@ -318,3 +318,14 @@ html,body{overscroll-behavior-y:contain}
 
 /* v15.3 iets meer lucht tussen items */
 .exs .ex{margin-bottom:6px;padding-top:4px}
+
+/* v16 vrienden */
+.frc{display:block;color:inherit;text-decoration:none}.frc .rh2{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.frr{display:flex;gap:10px;align-items:center;padding:5px 0;font-size:15px}.frr .sp{font-weight:600}.frm{font-size:13px}
+.frh{font-size:12.5px;font-weight:400;line-height:1.35;margin-top:4px}.frl{padding:4px 16px}
+.frr2{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.frr2:last-child{border-bottom:0}.frr2 .mu{font-size:13px;margin-top:2px}
+.frx{background:transparent;border:0;color:var(--mu);font-size:16px;width:40px;height:40px;border-radius:10px}
+.frcode{font-size:28px;font-weight:800;letter-spacing:2px;margin-bottom:4px}
+.frf{display:flex;gap:10px;align-items:center}.frf input{flex:1;min-width:0;height:var(--tap);font-size:18px;text-transform:uppercase;letter-spacing:1px}
+.frf input{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:12px;padding:0 14px}.frf input::placeholder{color:var(--mu);opacity:.6}
+.frf .btn{flex:0 0 auto;width:auto;padding:0 18px}.frc .h{font-size:15px}.cons{margin-top:12px}
