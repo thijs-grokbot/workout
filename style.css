@@ -301,11 +301,11 @@ input.cb:checked{background:var(--ac);border-color:var(--ac)}input.cb:checked:af
 .rbar .rs{width:32px;height:26px;font-size:15px;color:var(--mu);flex:none}
 .ex.fin .rbar .fill{background:var(--ac)}
 
-/* v15.2 pull-to-refresh */
-.ptr{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) - 34px);transform:translate(-50%,0);width:30px;height:30px;border-radius:50%;background:var(--card,#1c1c1e);box-shadow:0 2px 8px rgba(0,0,0,.25);display:grid;place-items:center;z-index:50;opacity:0;transition:opacity .15s,transform .2s;pointer-events:none}
-.ptr.on{opacity:.9}.ptr i{width:14px;height:14px;border:2px solid #888;border-top-color:transparent;border-radius:50%}
-.ptr.ready i{border-color:#f97316;border-top-color:transparent}.ptr.spin i{animation:ptrs .8s linear infinite;border-color:#f97316;border-top-color:transparent}
-@keyframes ptrs{to{transform:rotate(360deg)}}
+/* v15.3 pull-to-refresh: vaste plek, alleen opacity + rotatie */
+.ptr{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 10px);width:30px;height:30px;margin-left:-15px;border-radius:50%;background:var(--card,#1c1c1e);box-shadow:0 2px 8px rgba(0,0,0,.25);display:grid;place-items:center;z-index:50;opacity:0;pointer-events:none;transform:translateZ(0);will-change:opacity;transition:opacity .15s}
+.ptr.on{opacity:.9}.ptr i{display:block;width:14px;height:14px;border:2px solid #888;border-top-color:transparent;border-radius:50%;will-change:transform}
+.ptr.ready i,.ptr.spin i{border-color:#f97316;border-top-color:transparent}.ptr.spin{opacity:1}.ptr.spin i{animation:ptrs .8s linear infinite}
+@keyframes ptrs{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 html,body{overscroll-behavior-y:contain}
 /* v15.2 laatste: notities kleiner/gedempter, namen op één regel */
 .nt2{font-size:11px;opacity:.6;line-height:1.35}
@@ -315,3 +315,6 @@ html,body{overscroll-behavior-y:contain}
 /* v15.3 visueel verborgen (sleutelhanger: geen display:none) */
 .vh{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important;border:0!important;opacity:0}
 .auth input[readonly]#un{opacity:.75}
+
+/* v15.3 iets meer lucht tussen items */
+.exs .ex{margin-bottom:6px;padding-top:4px}

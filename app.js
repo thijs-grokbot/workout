@@ -51,6 +51,7 @@ async function api0(method,params,body,cfg=CFG,tries=2){
   let last;
   for(let i=0;i<tries;i++){
     const ac=new AbortController(), t=setTimeout(()=>ac.abort(),60000);
+    const ext=api0.signal; if(ext){ if(ext.aborted)ac.abort(); else ext.addEventListener('abort',()=>ac.abort(),{once:true}); } // pull-to-refresh time-out
     try{
       const url=cfg.API_URL+(method==='GET'?'?'+new URLSearchParams({...params,token:cfg.TOKEN,_:Date.now()}):'');
       const opt={method,redirect:'follow',credentials:'omit',signal:ac.signal};
@@ -126,7 +127,9 @@ function isMeaningful(l){ if(!l)return false; if(REAL_STATUS.includes(l.status))
 function logTs(l){ if(!l)return ''; let t=l.updated_at||l.synced_at||l.finished_at||''; if(!t)(l.sets||[]).forEach(s=>{ if(s.ts&&s.ts>t)t=s.ts; }); return String(t); }
 // v15.1: load_unit 'reps' = de stepper telt herhalingen (geen kg). reps_done volgt de teller.
 // v15.2: 'Set N: X' neemt het gewicht van de vorige ingevulde set van X over (losjes gematcht op de naam na 'Set N:')
-const setOf=n=>{ const m=String(n||'').match(/^\s*set\s*(\d+)\s*[:.\-–]\s*(.+)$/i); return m?{n:+m[1],x:m[2].toLowerCase().replace(/\(.*?\)/g,'').replace(/[^a-z0-9]+/g,' ').trim()}:null; };
+const setOf=n=>{ const t=String(n||''); let m=t.match(/^\s*set\s*(\d+)\s*[:.\-–]\s*(.+)$/i), k, x; if(m){ k=m[1]; x=m[2]; } else { m=t.match(/^(.+?)\s+(\d+)\/\d+\s*$/); if(m){ k=m[2]; x=m[1]; } } // v15.3: ook 'X 2/3'
+  return m?{n:+k,x:x.toLowerCase().replace(/\(.*?\)/g,'').replace(/[^a-z0-9]+/g,' ').trim()}:null; };
+const dn=n=>String(n||'').replace(/\s+\d+\/\d+\s*$/,''); // v15.3: weergave zonder ' n/m' (sleutel/lognaam blijven)
 function prevSetLoad(l,s,f='load_done'){ const me=setOf(s.exercise); if(!me||me.n<2)return null; let best=null;
   (l.sets||[]).forEach(o=>{ const so=setOf(o.exercise); if(!so||so.n>=me.n||so.x!==me.x||!(o.touched||o.done)||o[f]==null||o[f]==='')return; if(!best||so.n>best.n)best={n:so.n,v:o[f]}; }); return best&&best.v; }
 const isRepsU=u=>/^\s*reps\s*$/i.test(String(u||''));
@@ -142,7 +145,9 @@ function mergeServerLogs(arr){
   (arr||[]).forEach(sl=>{ if(!sl||!sl.workout_id||/TEST/i.test(sl.workout_id)||sl.date==='2000-01-01')return;
     const loc=LS.get(logKey(sl.workout_id)), sm=isMeaningful(sl), lm=isMeaningful(loc);
     if(!sm&&loc) return;                                 // lege server-log verslaat nooit een lokale
-    if(loc&&lm){ if(logTs(loc)>=logTs(sl)) return; }      // beide echt: nieuwste wint
+    const fin=REAL_STATUS.includes(sl.status), names=new Set((sl.sets||[]).map(x=>x&&x.exercise)), stale=loc&&(loc.sets||[]).some(x=>x&&x.exercise&&!names.has(x.exercise));
+    if(fin&&loc&&stale){ /* v15.3: afgeronde server-log is leidend; lokale state met andere/oude namen wordt weggegooid, nooit geüpload */ }
+    else     if(loc&&lm){ if(logTs(loc)>=logTs(sl)) return; }      // beide echt: nieuwste wint
     // anders (lokaal ontbreekt of is leeg/onaangeraakt): server wint altijd
     const m={...sl}; delete m.screenshot; if(sl.screenshot&&!/^data:/.test(sl.screenshot))m.screenshot_file=sl.screenshot;
     m.feedback=m.feedback||{}; m.sets=m.sets||[]; m.run=m.run||{};
@@ -153,8 +158,8 @@ async function loadServerLogs(){
   if(!syncOn())return;
   const f=new Date(); f.setDate(f.getDate()-180); const t=new Date(); t.setDate(t.getDate()+7);
   try{ const j=await api('GET',{action:'logs',from:ymd(f),to:ymd(t)});
-    if(j&&j.ok&&Array.isArray(j.logs)){ const n=mergeServerLogs(j.logs); serverLogsState='ok '+j.logs.length+' ('+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})+')'; LS.set('serverLogsState',serverLogsState); if(n)softRoute(); }
-    else { serverLogsState=(j&&/unknown action/.test(j.error||''))?'nog niet beschikbaar (Code.gs-update nodig)':'fout: '+((j&&j.error)||'?'); LS.set('serverLogsState',serverLogsState); }
+    if(j&&j.ok&&Array.isArray(j.logs)){ const n=mergeServerLogs(j.logs); logsMerged=true; serverLogsState='ok '+j.logs.length+' ('+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})+')'; LS.set('serverLogsState',serverLogsState); if(n)softRoute(); }
+    else { if(j&&/unknown action/.test(j.error||''))logsMerged=true; serverLogsState=(j&&/unknown action/.test(j.error||''))?'nog niet beschikbaar (Code.gs-update nodig)':'fout: '+((j&&j.error)||'?'); LS.set('serverLogsState',serverLogsState); }
   }catch(e){ serverLogsState='niet bereikbaar ('+e.message+')'; LS.set('serverLogsState',serverLogsState); }
   await loadHealth();
 }
@@ -167,10 +172,10 @@ async function loadHealth(){ if(!syncOn())return; const f=new Date(); f.setDate(
 const allLogs = () => Object.keys(localStorage).filter(k=>k.startsWith('log:')).map(k=>LS.get(k)).filter(Boolean);
 
 /* ---------- sync-wachtrij: hele log-object, idempotent (overschrijft op server) ---------- */
-let flushing=false;
+let flushing=false, logsMerged=false; // v15.3: niets uploaden vóór de eerste geslaagde server-merge
 async function flush(){
   const q=LS.get('queue',[]); syncLabel();
-  if(!syncOn()||flushing||!q.length||!navigator.onLine) return;
+  if(!syncOn()||flushing||!q.length||!navigator.onLine||!logsMerged) return;
   flushing=true;
   for(const id of q){
     const l=LS.get(logKey(id)); if(!l||!isMeaningful(l)){ LS.set('queue',LS.get('queue',[]).filter(x=>x!==id)); continue; }
@@ -183,7 +188,7 @@ async function flush(){
 }
 function syncLabel(){ const n=LS.get('queue',[]).length, el=document.querySelector('#avbtn'); if(!el)return; const i=el.querySelector('i'); if(i)i.className=syncOn()?(n?'':'on'):'';
   el.title=!syncOn()?'niet gekoppeld':(n?n+' te syncen':'gesynct'); }
-addEventListener('online',flush); setInterval(flush,30000); document.addEventListener('visibilitychange',()=>{if(!document.hidden)flush()});
+addEventListener('online',()=>{ logsMerged?flush():loadServerLogs().then(flush); }); setInterval(()=>{ if(!logsMerged&&syncOn()&&navigator.onLine)loadServerLogs().then(flush); else flush(); },30000); document.addEventListener('visibilitychange',()=>{if(!document.hidden)flush()});
 
 /* ---------- audio / signaal / wake lock ---------- */
 let AC=null;
@@ -450,11 +455,11 @@ function viewWorkout(w,tab){
     h+=`<div class="ex ${s.done?'done':''} ${firstOpen&&firstOpen.k===k?'active':''}" data-ex="${esc(it.exercise)}" data-k="${k}"><div class="x" data-del="${esc(it.exercise)}">✕<small>Verwijder</small></div><div class="mv">`;
  const ri=isRestItem(it);
     if(def&&!s.done&&ri){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false}, pct=Math.min(100,100*(1-x.left/dur));
-      h+=`<div class="itimer rbar${x.run?' run':''}" data-it="${k}" data-dur="${dur}"><button class="rb" data-ip="${k}" aria-label="${esc(it.exercise)}: ${x.run?'pauze':'start'}"><i class="fill" style="width:${pct}%"></i><span class="rn">${esc(it.exercise)}</span><span class="itl">${fmt(Math.ceil(x.left))}</span></button>${st&&st.start&&!x.run?`<button class="rs" data-ir="${k}" aria-label="reset">↺</button>`:''}</div>`; }
+      h+=`<div class="itimer rbar${x.run?' run':''}" data-it="${k}" data-dur="${dur}"><button class="rb" data-ip="${k}" aria-label="${esc(it.exercise)}: ${x.run?'pauze':'start'}"><i class="fill" style="width:${pct}%"></i><span class="rn">${esc(dn(it.exercise))}</span><span class="itl">${fmt(Math.ceil(x.left))}</span></button>${st&&st.start&&!x.run?`<button class="rs" data-ir="${k}" aria-label="reset">↺</button>`:''}</div>`; }
     else if(def&&!s.done){ const st=LS.get(itKey(w,k)); const dur=st?st.dur:def; const x=itState(st)||{left:dur,run:false};
-      h+=`<div class="tim itimer${ri?' ri':''}" data-it="${k}"><button class="play ${x.run?'pause':''}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button><div class="sp" data-chk="${k}"><div class="nm">${esc(it.exercise)}</div><div class="sub">${esc(sub)}</div></div>
+      h+=`<div class="tim itimer${ri?' ri':''}" data-it="${k}"><button class="play ${x.run?'pause':''}" data-ip="${k}" aria-label="${x.run?'pauze':'start'}">${x.run?'❚❚':'▶'}</button><div class="sp" data-chk="${k}"><div class="nm">${esc(dn(it.exercise))}</div><div class="sub">${esc(sub)}</div></div>
        <button class="clock itl" data-iset="${k}" aria-label="tijd wijzigen">${fmt(Math.ceil(x.left))}</button>${st&&st.start?`<button class="rs" data-ir="${k}" aria-label="reset">↺</button>`:''}</div>`; }
-    else h+=`<div class="exr${ri?' ri':''}" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(it.exercise)}</div>${stp?'':`<div class="sub">${esc(ri?fmt(def):hasReps?[s.reps_done?s.reps_done+(/^\d+$/.test(String(s.reps_done))?' reps':''):'',loadTxt].filter(Boolean).join(' · '):rc?(it.reps?it.reps+' reps':''):[it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'',it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?loadTxt:''].filter(Boolean).join(' · '))}</div>`}${it.notes?`<div class="nt2">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
+    else h+=`<div class="exr${ri?' ri':''}" data-chk="${k}"><div class="set">${s.done?'✓':''}</div><div class="sp"><div class="nm">${esc(dn(it.exercise))}</div>${stp?'':`<div class="sub">${esc(ri?fmt(def):hasReps?[s.reps_done?s.reps_done+(/^\d+$/.test(String(s.reps_done))?' reps':''):'',loadTxt].filter(Boolean).join(' · '):rc?(it.reps?it.reps+' reps':''):[it.reps?it.reps+(/^\d+$/.test(String(it.reps))?' reps':''):'',it.load_range?(u2?u2+' ':'')+it.load_range.join('–')+' kg':hasLoad&&!main?loadTxt:''].filter(Boolean).join(' · '))}</div>`}${it.notes?`<div class="nt2">${esc(it.notes)}</div>`:''}${it.alternatives?`<div class="alt">↔ ${esc(it.alternatives)}</div>`:''}</div></div>`;
     if(stp){ const rn=num(s.reps_done), pv=prevLoad(w,it.exercise); // v15.1: elk open set-item met load/reps toont direct zijn steppers
       h+=`<div class="steps">${hasLoad?`<div class="step" ${rc?'style="grid-column:1/-1"':''}><button data-w="${k}" data-d="-1" aria-label="${rc?'minder reps':'minder gewicht'}" ${+s.load_done<=0?'disabled':''}>−</button><button class="v" data-wt="${k}">${esc(u2?u2:'')}${s.load_done??'–'} ${rc?'reps':'kg'}</button><button data-w="${k}" data-d="1" aria-label="${rc?'meer reps':'meer gewicht'}">+</button></div>`:''}
        ${rc?'':`<div class="step" ${hasLoad?'':'style="grid-column:1/-1"'}><button data-r="${k}" data-d="-1" aria-label="minder reps" ${rn==null||rn<=0?'disabled':''}>−</button><button class="v" data-reps="${k}">${esc(s.reps_done||'–')}${hasReps&&num(s.reps_done)!=null&&/^\d+$/.test(String(s.reps_done))?' reps':''}</button><button data-r="${k}" data-d="1" aria-label="meer reps" ${rn==null?'disabled':''}>+</button></div>`}</div>${pv&&hasLoad?`<div class="prev">Vorige keer ${pv.v} ${rc?'reps':'kg'}</div>`:''}`; }
@@ -927,30 +932,39 @@ function toast(t){ document.querySelectorAll('.toast').forEach(x=>x.remove()); c
 try{ if(localStorage.getItem('toastShownFor')!==APP_VERSION){ const first=!localStorage.getItem('toastShownFor'); localStorage.setItem('toastShownFor',APP_VERSION); if(!first)setTimeout(()=>toast('Bijgewerkt naar '+APP_VERSION),400); } }catch(e){}
 sessionStorage.removeItem('updated');
 
-/* ---------- pull-to-refresh (v15.2) ---------- */
-// alleen vanaf scrollTop 0, drempel ~70px; niet vanaf steppers, rustbalken, invoer of knoppen
-let swReg=null; if('serviceWorker' in navigator)navigator.serviceWorker.getRegistration().then(r=>{swReg=r;}).catch(()=>{});
+/* ---------- pull-to-refresh (v15.3) ---------- */
+// Alleen vanaf scrollTop 0, drempel ~70px; niet vanaf steppers, rustbalken, invoer of knoppen.
+// Indicator staat vast (fixed, geen layout), alleen opacity/kleur volgt de vinger; draaien = CSS-animatie op transform.
+// Plan + logs parallel met 8 s time-out (AbortController); SW-update los en niet-blokkerend; lokale invoer blijft staan.
+const PTR_TIMEOUT=8000;
+function swCheck(){ try{ if(!('serviceWorker' in navigator))return; navigator.serviceWorker.getRegistration().then(r=>r&&r.update()).catch(()=>{}); }catch(e){} } // controllerchange herlaadt alleen bij echte nieuwe versie
 async function pullRefresh(){
-  try{ if(syncOn()){ await loadPlan(); await loadServerLogs(); await flush(); await writeOverrides(); } }catch(e){}
-  try{ const r=swReg||(navigator.serviceWorker&&await navigator.serviceWorker.getRegistration()); if(r){ await r.update(); if(r.waiting)r.waiting.postMessage({type:'SKIP_WAITING'}); } }catch(e){}
-  route();
+  swCheck(); if(!syncOn())return {ok:true};
+  const ac=new AbortController(), to=setTimeout(()=>ac.abort(),PTR_TIMEOUT); api0.signal=ac.signal; let ok=true;
+  try{ const r=await Promise.race([Promise.allSettled([loadPlan(),loadServerLogs()]),new Promise(res=>ac.signal.addEventListener('abort',()=>res(null),{once:true}))]);
+    if(!r||ac.signal.aborted)ok=false; else if(r.some(x=>x.status==='rejected'))ok=false; }
+  catch(e){ ok=false; } finally{ clearTimeout(to); api0.signal=null; }
+  if(ok){ flush().catch(()=>{}); try{ writeOverrides(); }catch(e){} }
+  return {ok,timeout:ac.signal.aborted};
 }
 (function(){
   const PTR_T=70; let y0=null,dy=0,busy=false,el=null;
   const ind=()=>{ if(!el){ el=document.createElement('div'); el.className='ptr'; el.setAttribute('aria-hidden','true'); el.innerHTML='<i></i>'; document.body.appendChild(el); } return el; };
   const top=()=>(document.scrollingElement||document.documentElement).scrollTop<=0;
+  const hide=()=>{ if(el){ el.classList.remove('on','ready','spin'); el.style.opacity=''; } };
   addEventListener('touchstart',e=>{ y0=null; dy=0; if(busy||e.touches.length!==1||!top())return;
-    if(e.target.closest('input,textarea,select,button,.step,.steps,.rbar,.itimer,[data-ip],[data-ir],.modal,dialog'))return;
+    if(e.target.closest('input,textarea,select,button,a,.step,.steps,.rbar,.itimer,[data-ip],[data-ir],.modal,dialog'))return;
     y0=e.touches[0].clientY; },{passive:true});
-  addEventListener('touchmove',e=>{ if(y0==null)return; dy=e.touches[0].clientY-y0; if(dy<=0||!top()){ if(el)el.style.transform=''; return; }
-    const d=Math.min(dy*.5,60), p=ind(); p.classList.add('on'); p.classList.toggle('ready',dy>=PTR_T); p.style.transform='translate(-50%,'+d+'px)'; },{passive:true});
-  addEventListener('touchend',async()=>{ if(y0==null)return; const go=dy>=PTR_T&&top(); y0=null; dy=0; const p=el;
-    if(!go){ if(p){ p.classList.remove('on','ready'); p.style.transform=''; } return; }
-    busy=true; p.classList.add('spin'); p.style.transform='translate(-50%,40px)';
-    try{ await pullRefresh(); }finally{ busy=false; p.classList.remove('on','ready','spin'); p.style.transform=''; } },{passive:true});
-  addEventListener('touchcancel',()=>{ y0=null; dy=0; if(el&&!busy){ el.classList.remove('on','ready'); el.style.transform=''; } },{passive:true});
+  addEventListener('touchmove',e=>{ if(y0==null)return; dy=e.touches[0].clientY-y0; const p=ind();
+    if(dy<=8||!top()){ p.classList.remove('on','ready'); p.style.opacity=''; return; }
+    p.classList.add('on'); p.classList.toggle('ready',dy>=PTR_T); p.style.opacity=String(Math.min(1,.25+dy/PTR_T*.75)); },{passive:true});
+  addEventListener('touchend',async()=>{ if(y0==null)return; const go=dy>=PTR_T&&top(); y0=null; dy=0;
+    if(!go){ hide(); return; }
+    const p=ind(); busy=true; p.style.opacity=''; p.classList.add('on','spin');
+    let r={ok:false}; try{ r=await pullRefresh(); }catch(e){} finally{ busy=false; hide(); }
+    if(r.ok) route(); else toast(r.timeout?'Geen verbinding, oude gegevens':'Vernieuwen lukte niet'); },{passive:true});
+  addEventListener('touchcancel',()=>{ y0=null; dy=0; if(!busy)hide(); },{passive:true});
 })();
-
 /* ---------- start ---------- */
 if('serviceWorker' in navigator){
   const hadCtrl=!!navigator.serviceWorker.controller; let reloaded=false;

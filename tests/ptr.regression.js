@@ -29,8 +29,21 @@ let g=gets;await touch('main .exr .nm, main h1, main',150,190);await p.waitForTi
 g=gets;await touch('main [data-w][data-d="1"]',150,300);await p.waitForTimeout(800);assert.strictEqual(gets,g,'refresh vanaf stepper');
 g=gets;await touch('main .rbar',150,300);await p.waitForTimeout(800);assert.strictEqual(gets,g,'refresh vanaf rustbalk');
 g=gets;await touch('main h1, main',150,300);await p.waitForTimeout(1500);assert.ok(gets>g,'geen refresh bij pull vanaf top');
-assert.ok(await p.$('.ptr'),'geen indicator');assert.ok(!(await p.$('.ptr.spin')),'indicator blijft hangen');
+assert.ok(await p.$('.ptr'),'geen indicator');
+// vaste plek: positie tijdens trekken == tijdens draaien, geen layout-shift van main
+let dt=0;const pos=()=>p.evaluate(()=>{const r=document.querySelector('.ptr').getBoundingClientRect();return [Math.round(r.top),Math.round(r.left),Math.round(document.querySelector('main').getBoundingClientRect().top)];});
+const tp=await p.evaluate(()=>getComputedStyle(document.querySelector('.ptr')).position);assert.strictEqual(tp,'fixed');
+// hangende backend -> time-out na 8 s, spinner weg, kleine melding
+let hang=false;await c.route(/script\.google\.com/,async r=>{ if(hang&&/action=(plan|logs)/.test(r.request().url())){ await new Promise(x=>setTimeout(x,20000)); return r.abort().catch(()=>{}); } return r.fallback(); });
+hang=true;const p0=await pos();const t0=Date.now();
+await p.evaluate(()=>{const t=document.querySelector('main h1')||document.querySelector('main');const mk=y=>({identifier:1,target:t,clientX:200,clientY:y});const f=(type,y)=>{const e=new Event(type,{bubbles:true});Object.defineProperty(e,'touches',{value:type==='touchend'?[]:[mk(y)]});Object.defineProperty(e,'changedTouches',{value:[mk(y)]});t.dispatchEvent(e);};f('touchstart',150);for(let y=150;y<=300;y+=10)f('touchmove',y);f('touchend',300);});
+await p.waitForTimeout(400);assert.ok(await p.$('.ptr.spin'),'spinner draait niet');const p1=await pos();assert.deepStrictEqual(p1,p0,'spinner/inhoud verspringt: '+p0+' -> '+p1);
+assert.strictEqual(await p.$eval('.ptr i',e=>getComputedStyle(e).animationName),'ptrs');
+await p.screenshot({path:S+'ptr-spinner.png',clip:{x:0,y:0,width:390,height:200}});
+await p.waitForFunction(()=>!document.querySelector('.ptr.spin'),null,{timeout:12000});dt=Date.now()-t0;assert.ok(dt<9500&&dt>7000,'time-out niet ~8 s: '+dt);
+assert.match(await p.textContent('.toast'),/Geen verbinding/);hang=false;
+assert.ok(!(await p.$('.ptr.spin')),'indicator blijft hangen');
 assert.strictEqual((await p.textContent('main .ex[data-ex="Set 2: Pull-ups"] [data-wt]')).trim(),'7 reps','invoer verloren na refresh');
 await p.reload();await p.waitForTimeout(1500);await p.evaluate(t=>location.hash='#w/2026-10-20-boven/'+t,tab);await p.waitForTimeout(500);
 assert.strictEqual((await p.textContent('main .ex[data-ex="Set 2: Pull-ups"] [data-wt]')).trim(),'7 reps','invoer verloren na herladen');
-assert.deepStrictEqual(errs,[]);console.log('ptr-regressie OK');await b.close();})().catch(e=>{console.error(e);process.exit(1);});
+assert.deepStrictEqual(errs.filter(e=>!/access control checks/.test(e)),[]);console.log("ptr-regressie OK (time-out "+dt+" ms)");await b.close();})().catch(e=>{console.error(e);process.exit(1);});
