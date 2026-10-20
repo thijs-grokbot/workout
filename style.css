@@ -307,3 +307,7 @@ input.cb:checked{background:var(--ac);border-color:var(--ac)}input.cb:checked:af
 .ptr.ready i{border-color:#f97316;border-top-color:transparent}.ptr.spin i{animation:ptrs .8s linear infinite;border-color:#f97316;border-top-color:transparent}
 @keyframes ptrs{to{transform:rotate(360deg)}}
 html,body{overscroll-behavior-y:contain}
+/* v15.2 laatste: notities kleiner/gedempter, namen op één regel */
+.nt2{font-size:11px;opacity:.6;line-height:1.35}
+.ex .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;display:block;max-width:100%}
+.ex .exr>*,.ex .mv,.ex .exr{min-width:0}
